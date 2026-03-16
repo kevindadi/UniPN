@@ -1,0 +1,24 @@
+---
+source: tests/dot_export.rs
+expression: dot
+---
+digraph CVN {
+  rankdir=TB;
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica"];
+
+  "mtx_a" [label="mtx_a\n[Mutex]\n[1]", shape=doublecircle, style=filled, fillcolor=orange];
+  "mtx_b" [label="mtx_b\n[Mutex]\n[1]", shape=doublecircle, style=filled, fillcolor=orange];
+  "w1_start" [label="w1::s0\n[1]", shape=ellipse, style=filled, fillcolor=lightblue];
+  "w1_locked_a" [label="w1::s1", shape=ellipse, style=filled, fillcolor=lightblue];
+  "w1_done" [label="w1::s2\n(ret)", shape=ellipse, style=filled, fillcolor=lightblue];
+  "t_w1_lock_a" [label="t_w1_lock_a\n(Lock)", shape=box, style=filled, fillcolor=gray90];
+  "t_w1_drop_a" [label="t_w1_drop_a\n(Unlock)", shape=box, style=filled, fillcolor=gray90];
+
+  "w1_start" -> "t_w1_lock_a";
+  "mtx_a" -> "t_w1_lock_a";
+  "w1_locked_a" -> "t_w1_drop_a";
+  "t_w1_lock_a" -> "w1_locked_a";
+  "t_w1_drop_a" -> "w1_done";
+  "t_w1_drop_a" -> "mtx_a";
+}
