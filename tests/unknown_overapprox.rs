@@ -18,11 +18,11 @@ fn unknown_enables_both_branches() {
         .set_return("p_true")
         .set_return("p_false")
         // BranchTrue: count > 0
-        .add_transition("t_true", TransitionKind::BranchTrue, &["s0"])
+        .add_transition("t_true", TransitionKind::BranchTrue)
         .add_input_arc("p0", "t_true", 1, gt(var("count"), lit_int(0)))
         .add_output_arc("t_true", "p_true", 1, None)
         // BranchFalse: !(count > 0)
-        .add_transition("t_false", TransitionKind::BranchFalse, &["s0"])
+        .add_transition("t_false", TransitionKind::BranchFalse)
         .add_input_arc("p0", "t_false", 1, not(gt(var("count"), lit_int(0))))
         .add_output_arc("t_false", "p_false", 1, None)
         .set_initial_tokens("p0", 1)

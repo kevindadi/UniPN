@@ -11,7 +11,7 @@ fn v101_missing_control_input_arc() {
         .add_control_place("p1", "main", "s1")
         .set_return("p1")
         // Transition with NO input arcs at all
-        .add_transition("t0", TransitionKind::Sequential, &["s0"])
+        .add_transition("t0", TransitionKind::Sequential)
         .add_output_arc("t0", "p1", 1, None)
         .set_initial_tokens("p0", 1)
         .build();
@@ -32,7 +32,7 @@ fn v201_unpaired_branch() {
         .set_return("p_true")
         .add_variable("x", Val::int(0))
         // Only BranchTrue, no BranchFalse
-        .add_transition("t_true", TransitionKind::BranchTrue, &["s0"])
+        .add_transition("t_true", TransitionKind::BranchTrue)
         .add_input_arc("p0", "t_true", 1, gt(var("x"), lit_int(0)))
         .add_output_arc("t_true", "p_true", 1, None)
         .set_initial_tokens("p0", 1)
@@ -55,7 +55,7 @@ fn v104_conflicting_updates() {
         .set_return("p1")
         .set_return("p2")
         .add_variable("x", Val::int(0))
-        .add_transition("t0", TransitionKind::Sequential, &["s0"])
+        .add_transition("t0", TransitionKind::Sequential)
         .add_input_arc("p0", "t0", 1, BoolExpr::True)
         // Two output arcs that both update variable "x"
         .add_output_arc(

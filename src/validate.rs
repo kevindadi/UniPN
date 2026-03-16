@@ -23,7 +23,6 @@ pub fn validate(
     check_control_input_arcs(net, input_arcs, &mut errors);
     check_control_output_arcs(net, output_arcs, &mut errors);
     check_update_conflicts(net, output_arcs, &mut errors);
-    check_anchor_sids(net, &mut errors);
     check_branch_pairs(net, input_arcs, &mut errors);
     check_resource_initial_tokens(net, &mut errors);
 
@@ -231,7 +230,12 @@ fn check_update_conflicts(
 }
 
 /// W7 (V105): every transition must have at least one anchor SID.
-fn check_anchor_sids(net: &CvnNet, errors: &mut Vec<CvnError>) {
+///
+/// Only available with the `cir-anchor` feature. Called separately from
+/// [`validate()`] via [`CvnNetBuilder::build_with_anchor_check()`](crate::builder::CvnNetBuilder::build_with_anchor_check).
+#[cfg(feature = "cir-anchor")]
+pub(crate) fn check_anchor_sids(net: &CvnNet) -> Vec<CvnError> {
+    let mut errors = Vec::new();
     for t in net.transitions() {
         if t.anchor_sids.is_empty() {
             errors.push(CvnError::new(
@@ -241,6 +245,7 @@ fn check_anchor_sids(net: &CvnNet, errors: &mut Vec<CvnError>) {
             ));
         }
     }
+    errors
 }
 
 /// W8 (V201/V202): branch transitions must appear in complementary pairs.

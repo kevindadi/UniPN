@@ -42,6 +42,7 @@ pub enum ErrorCode {
     /// Same transition has conflicting variable updates (violates W4).
     V104,
     /// Transition has no anchor SID (violates W7).
+    #[cfg(feature = "cir-anchor")]
     V105,
 
     // V2xx — branch completeness
@@ -82,6 +83,7 @@ impl fmt::Display for ErrorCode {
             Self::V102 => "V102",
             Self::V103 => "V103",
             Self::V104 => "V104",
+            #[cfg(feature = "cir-anchor")]
             Self::V105 => "V105",
             Self::V201 => "V201",
             Self::V202 => "V202",

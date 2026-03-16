@@ -2,6 +2,7 @@
 
 use crate::model::{State, TransitionId};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "cir-anchor")]
 use smallvec::SmallVec;
 
 /// The kind of property violation detected.
@@ -22,6 +23,9 @@ pub struct FiringStep {
     /// The transition that fired.
     pub transition_id: TransitionId,
     /// The CIR statement IDs anchored to this transition (μ(t)).
+    /// Only available with the `cir-anchor` feature.
+    #[cfg(feature = "cir-anchor")]
+    #[serde(default, skip_serializing_if = "SmallVec::is_empty")]
     pub anchor_sids: SmallVec<[String; 2]>,
 }
 

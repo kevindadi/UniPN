@@ -198,19 +198,20 @@ fn reconstruct_trace(
     _graph: &DiGraph<State, TransitionId>,
     predecessors: &FxHashMap<NodeIndex, (NodeIndex, TransitionId)>,
     target: NodeIndex,
-    net: &CvnNet,
+    #[cfg(feature = "cir-anchor")] net: &CvnNet,
+    #[cfg(not(feature = "cir-anchor"))] _net: &CvnNet,
 ) -> Vec<FiringStep> {
     let mut path = Vec::new();
     let mut current = target;
 
     while let Some((parent, tid)) = predecessors.get(&current) {
-        let anchor_sids = net
-            .transition(tid)
-            .map(|t| t.anchor_sids.clone())
-            .unwrap_or_default();
         path.push(FiringStep {
             transition_id: tid.clone(),
-            anchor_sids,
+            #[cfg(feature = "cir-anchor")]
+            anchor_sids: net
+                .transition(tid)
+                .map(|t| t.anchor_sids.clone())
+                .unwrap_or_default(),
         });
         current = *parent;
     }

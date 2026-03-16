@@ -1,16 +1,20 @@
 [package]
 name = "cvn"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Concurrency Verification Net — a weighted P/T Petri net with global variable guards for concurrent program verification"
 license = "MIT"
 
+[features]
+default = []
+cir-anchor = ["smallvec"]
+
 [dependencies]
-petgraph = { version = "0.7", features = ["serde-1"] }
+petgraph = { version = "0.8", features = ["serde-1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-smallvec = { version = "1", features = ["serde"] }
+smallvec = { version = "1", features = ["serde"], optional = true }
 rustc-hash = "2"
 indexmap = { version = "2", features = ["serde"] }
 

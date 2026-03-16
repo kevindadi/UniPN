@@ -24,7 +24,7 @@ use rustc_hash::FxHashMap;
 ///     .add_control_place("p0", "main", "s0")
 ///     .add_control_place("p1", "main", "s1")
 ///     .set_return("p1")
-///     .add_transition("t0", TransitionKind::Sequential, &["s0"])
+///     .add_transition("t0", TransitionKind::Sequential)
 ///     .add_input_arc("p0", "t0", 1, BoolExpr::True)
 ///     .add_output_arc("t0", "p1", 1, None)
 ///     .set_initial_tokens("p0", 1)
@@ -131,10 +131,23 @@ impl CvnNetBuilder {
         mut self,
         id: impl Into<String>,
         kind: TransitionKind,
+    ) -> Self {
+        let id = id.into();
+        let t = Transition::new(TransitionId::new(id.clone()), kind);
+        self.transitions.insert(id, t);
+        self
+    }
+
+    /// Add a transition with CIR statement ID anchors.
+    #[cfg(feature = "cir-anchor")]
+    pub fn add_transition_with_anchor(
+        mut self,
+        id: impl Into<String>,
+        kind: TransitionKind,
         sids: &[impl AsRef<str>],
     ) -> Self {
         let id = id.into();
-        let t = Transition::new(
+        let t = Transition::with_anchor(
             TransitionId::new(id.clone()),
             kind,
             sids.iter().map(|s| s.as_ref().to_string()),
@@ -189,12 +202,8 @@ impl CvnNetBuilder {
         self
     }
 
-    /// Build the CVN network, performing well-formedness validation.
-    ///
-    /// Returns the constructed [`CvnNet`] on success, or a list of validation
-    /// errors on failure.
-    pub fn build(mut self) -> Result<CvnNet, Vec<CvnError>> {
-        // Apply return flags
+    /// Construct the graph and apply return flags; shared by both build methods.
+    fn build_net(mut self) -> (CvnNet, Vec<InputArcData>, Vec<OutputArcData>) {
         for pid in &self.return_places {
             if let Some(place) = self.places.get_mut(pid) {
                 place.is_return = true;
@@ -205,19 +214,16 @@ impl CvnNetBuilder {
         let mut place_index = FxHashMap::default();
         let mut transition_index = FxHashMap::default();
 
-        // Add place nodes
         for (_, place) in &self.places {
             let idx = graph.add_node(NetNode::Place(place.clone()));
             place_index.insert(place.id.clone(), idx);
         }
 
-        // Add transition nodes
         for (_, transition) in &self.transitions {
             let idx = graph.add_node(NetNode::Transition(transition.clone()));
             transition_index.insert(transition.id.clone(), idx);
         }
 
-        // Add input arc edges (Place → Transition)
         for arc in &self.input_arcs {
             if let (Some(&p_idx), Some(&t_idx)) =
                 (place_index.get(&arc.place), transition_index.get(&arc.transition))
@@ -226,7 +232,6 @@ impl CvnNetBuilder {
             }
         }
 
-        // Add output arc edges (Transition → Place)
         for arc in &self.output_arcs {
             if let (Some(&t_idx), Some(&p_idx)) =
                 (transition_index.get(&arc.transition), place_index.get(&arc.place))
@@ -235,7 +240,6 @@ impl CvnNetBuilder {
             }
         }
 
-        // Build initial marking
         let mut initial_marking = Marking::default();
         for (pid, count) in &self.initial_tokens {
             if *count > 0 {
@@ -251,8 +255,32 @@ impl CvnNetBuilder {
             self.initial_vars,
         );
 
-        // Run validation
-        let errors = validate::validate(&net, &self.input_arcs, &self.output_arcs);
+        (net, self.input_arcs, self.output_arcs)
+    }
+
+    /// Build the CVN network, performing well-formedness validation.
+    ///
+    /// Returns the constructed [`CvnNet`] on success, or a list of validation
+    /// errors on failure.
+    pub fn build(self) -> Result<CvnNet, Vec<CvnError>> {
+        let (net, input_arcs, output_arcs) = self.build_net();
+        let errors = validate::validate(&net, &input_arcs, &output_arcs);
+        if errors.is_empty() {
+            Ok(net)
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Build the CVN network with additional anchor completeness validation (W7).
+    ///
+    /// Like [`build()`](Self::build), but additionally checks that every transition
+    /// has at least one CIR statement ID anchor (V105).
+    #[cfg(feature = "cir-anchor")]
+    pub fn build_with_anchor_check(self) -> Result<CvnNet, Vec<CvnError>> {
+        let (net, input_arcs, output_arcs) = self.build_net();
+        let mut errors = validate::validate(&net, &input_arcs, &output_arcs);
+        errors.extend(validate::check_anchor_sids(&net));
         if errors.is_empty() {
             Ok(net)
         } else {

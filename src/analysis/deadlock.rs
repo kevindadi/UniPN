@@ -32,7 +32,7 @@ pub fn blocked_places(net: &CvnNet, state: &State) -> Vec<PlaceId> {
     state
         .marking
         .iter()
-        .filter(|(_, &count)| count > 0)
+        .filter(|(_, count)| **count > 0)
         .filter_map(|(pid, _)| {
             net.place(pid)
                 .filter(|p| p.is_control_flow() && !p.is_return)

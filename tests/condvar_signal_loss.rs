@@ -46,36 +46,36 @@ fn build_condvar_net() -> cvn::net::CvnNet {
         .set_return("n_done")
         // --- Transitions ---
         // main: spawn waiter
-        .add_transition("t_spawn_waiter", TransitionKind::Spawn, &["ms0"])
+        .add_transition("t_spawn_waiter", TransitionKind::Spawn)
         .add_input_arc("main_start", "t_spawn_waiter", 1, BoolExpr::True)
         .add_output_arc("t_spawn_waiter", "main_spawned_waiter", 1, None)
         .add_output_arc("t_spawn_waiter", "w_start", 1, None)
         // main: spawn notifier
-        .add_transition("t_spawn_notifier", TransitionKind::Spawn, &["ms1"])
+        .add_transition("t_spawn_notifier", TransitionKind::Spawn)
         .add_input_arc("main_spawned_waiter", "t_spawn_notifier", 1, BoolExpr::True)
         .add_output_arc("t_spawn_notifier", "main_spawned_notifier", 1, None)
         .add_output_arc("t_spawn_notifier", "n_start", 1, None)
         // main: join waiter
-        .add_transition("t_join_waiter", TransitionKind::Join, &["ms2"])
+        .add_transition("t_join_waiter", TransitionKind::Join)
         .add_input_arc("main_spawned_notifier", "t_join_waiter", 1, BoolExpr::True)
         .add_input_arc("w_done", "t_join_waiter", 1, BoolExpr::True)
         .add_output_arc("t_join_waiter", "main_joined_waiter", 1, None)
         // main: join notifier
-        .add_transition("t_join_notifier", TransitionKind::Join, &["ms3"])
+        .add_transition("t_join_notifier", TransitionKind::Join)
         .add_input_arc("main_joined_waiter", "t_join_notifier", 1, BoolExpr::True)
         .add_input_arc("n_done", "t_join_notifier", 1, BoolExpr::True)
         .add_output_arc("t_join_notifier", "main_done", 1, None)
         // waiter: lock(mtx)
-        .add_transition("t_w_lock", TransitionKind::Lock, &["ws0"])
+        .add_transition("t_w_lock", TransitionKind::Lock)
         .add_input_arc("w_start", "t_w_lock", 1, BoolExpr::True)
         .add_input_arc("mtx", "t_w_lock", 1, BoolExpr::True)
         .add_output_arc("t_w_lock", "w_locked", 1, None)
         // waiter: sequential step to branch point
-        .add_transition("t_w_seq", TransitionKind::Sequential, &["ws1"])
+        .add_transition("t_w_seq", TransitionKind::Sequential)
         .add_input_arc("w_locked", "t_w_seq", 1, BoolExpr::True)
         .add_output_arc("t_w_seq", "w_check_ready", 1, None)
         // waiter: branch ready == true → skip to reacquired
-        .add_transition("t_w_branch_true", TransitionKind::BranchTrue, &["ws2"])
+        .add_transition("t_w_branch_true", TransitionKind::BranchTrue)
         .add_input_arc(
             "w_check_ready",
             "t_w_branch_true",
@@ -84,7 +84,7 @@ fn build_condvar_net() -> cvn::net::CvnNet {
         )
         .add_output_arc("t_w_branch_true", "w_reacquired", 1, None)
         // waiter: branch ready == false → wait(cv, release mtx)
-        .add_transition("t_w_branch_false", TransitionKind::BranchFalse, &["ws2"])
+        .add_transition("t_w_branch_false", TransitionKind::BranchFalse)
         .add_input_arc(
             "w_check_ready",
             "t_w_branch_false",
@@ -94,22 +94,22 @@ fn build_condvar_net() -> cvn::net::CvnNet {
         .add_output_arc("t_w_branch_false", "w_waiting", 1, None)
         .add_output_arc("t_w_branch_false", "mtx", 1, None) // release mutex
         // waiter: condvar wakeup → reacquire mutex (fired by notify_wake)
-        .add_transition("t_w_reacquire", TransitionKind::CondvarWait, &["ws_woken"])
+        .add_transition("t_w_reacquire", TransitionKind::CondvarWait)
         .add_input_arc("w_woken", "t_w_reacquire", 1, BoolExpr::True)
         .add_input_arc("mtx", "t_w_reacquire", 1, BoolExpr::True)
         .add_output_arc("t_w_reacquire", "w_reacquired", 1, None)
         // waiter: drop(mtx)
-        .add_transition("t_w_drop", TransitionKind::Unlock, &["ws3"])
+        .add_transition("t_w_drop", TransitionKind::Unlock)
         .add_input_arc("w_reacquired", "t_w_drop", 1, BoolExpr::True)
         .add_output_arc("t_w_drop", "w_done", 1, None)
         .add_output_arc("t_w_drop", "mtx", 1, None)
         // notifier: lock(mtx)
-        .add_transition("t_n_lock", TransitionKind::Lock, &["ns0"])
+        .add_transition("t_n_lock", TransitionKind::Lock)
         .add_input_arc("n_start", "t_n_lock", 1, BoolExpr::True)
         .add_input_arc("mtx", "t_n_lock", 1, BoolExpr::True)
         .add_output_arc("t_n_lock", "n_locked", 1, None)
         // notifier: write(ready, true)
-        .add_transition("t_n_write", TransitionKind::VarWrite, &["ns1"])
+        .add_transition("t_n_write", TransitionKind::VarWrite)
         .add_input_arc("n_locked", "t_n_write", 1, BoolExpr::True)
         .add_output_arc(
             "t_n_write",
@@ -127,7 +127,6 @@ fn build_condvar_net() -> cvn::net::CvnNet {
             TransitionKind::CondvarNotify {
                 target_wait_place: "w_waiting".to_string(),
             },
-            &["ns2"],
         )
         .add_input_arc("n_written", "t_n_notify_wake", 1, BoolExpr::True)
         .add_input_arc("w_waiting", "t_n_notify_wake", 1, BoolExpr::True)
@@ -139,12 +138,11 @@ fn build_condvar_net() -> cvn::net::CvnNet {
             TransitionKind::CondvarNotify {
                 target_wait_place: "w_waiting".to_string(),
             },
-            &["ns2"],
         )
         .add_input_arc("n_written", "t_n_notify_noop", 1, BoolExpr::True)
         .add_output_arc("t_n_notify_noop", "n_notified", 1, None)
         // notifier: drop(mtx)
-        .add_transition("t_n_drop", TransitionKind::Unlock, &["ns3"])
+        .add_transition("t_n_drop", TransitionKind::Unlock)
         .add_input_arc("n_notified", "t_n_drop", 1, BoolExpr::True)
         .add_output_arc("t_n_drop", "n_done", 1, None)
         .add_output_arc("t_n_drop", "mtx", 1, None)

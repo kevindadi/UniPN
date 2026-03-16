@@ -1,6 +1,7 @@
 //! Transition types for the CVN.
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "cir-anchor")]
 use smallvec::SmallVec;
 use std::fmt;
 
@@ -85,12 +86,26 @@ pub struct Transition {
     /// Classification of this transition.
     pub kind: TransitionKind,
     /// Anchor mapping μ(t): SIDs from the CIR that this transition corresponds to.
+    /// Only available with the `cir-anchor` feature.
+    #[cfg(feature = "cir-anchor")]
+    #[serde(default, skip_serializing_if = "SmallVec::is_empty")]
     pub anchor_sids: SmallVec<[String; 2]>,
 }
 
 impl Transition {
-    /// Create a new transition.
-    pub fn new(
+    /// Create a new transition without anchor information.
+    pub fn new(id: impl Into<TransitionId>, kind: TransitionKind) -> Self {
+        Self {
+            id: id.into(),
+            kind,
+            #[cfg(feature = "cir-anchor")]
+            anchor_sids: SmallVec::new(),
+        }
+    }
+
+    /// Create a new transition with CIR statement ID anchors.
+    #[cfg(feature = "cir-anchor")]
+    pub fn with_anchor(
         id: impl Into<TransitionId>,
         kind: TransitionKind,
         sids: impl IntoIterator<Item = impl Into<String>>,
@@ -100,6 +115,12 @@ impl Transition {
             kind,
             anchor_sids: sids.into_iter().map(Into::into).collect(),
         }
+    }
+
+    /// Returns the CIR statement ID anchors for this transition.
+    #[cfg(feature = "cir-anchor")]
+    pub fn anchor_sids(&self) -> &SmallVec<[String; 2]> {
+        &self.anchor_sids
     }
 
     /// Returns `true` if this is a return transition.
