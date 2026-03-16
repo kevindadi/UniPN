@@ -1,50 +1,22 @@
 [package]
-name = "cpn"
+name = "cvn"
 version = "0.1.0"
-edition = "2021"
-authors = ["Kevin Zhang zhangkw@tongji.edu.cn"]
-description = "着色Petri网(Colored Petri Net)框架"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/kevindadi/cpn"
-readme = "README.md"
+edition = "2024"
+description = "Concurrency Verification Net — a weighted P/T Petri net with global variable guards for concurrent program verification"
+license = "MIT"
+
+[features]
+default = []
+cir-anchor = ["smallvec"]
 
 [dependencies]
-# 矩阵和线性代数
-nalgebra = "0.33"
-# 图数据结构
-petgraph = "0.6"
-# 序列化支持
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-# 错误处理
-thiserror = "1.0"
-# 哈希集合
-ahash = "0.8"
-indexmap = "2.0"
-# 并行计算
-rayon = "1.8"
+petgraph = { version = "0.8", features = ["serde-1"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+smallvec = { version = "1", features = ["serde"], optional = true }
+rustc-hash = "2"
+indexmap = { version = "2", features = ["serde"] }
 
 [dev-dependencies]
-# 测试框架
-criterion = "0.5"
-proptest = "1.4"
-
-[[bench]]
-name = "petri_net_bench"
-harness = false
-
-[lib]
-name = "cpn"
-path = "src/lib.rs"
-
-[[example]]
-name = "simple_cpn"
-path = "examples/simple_cpn.rs"
-
-[[example]]
-name = "producer_consumer"
-path = "examples/producer_consumer.rs"
-
-[[example]]
-name = "reachability_analysis"
-path = "examples/reachability_analysis.rs"
+insta = "1"

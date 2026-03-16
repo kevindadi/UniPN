@@ -1,43 +1,46 @@
-//! # CPN - 着色Petri网框架
+//! # CVN — Concurrency Verification Net
 //!
-//! 一个功能完整的着色Petri网（Colored Petri Net）实现，支持：
-//! - 可扩展的颜色集系统
-//! - Guard trait用于变迁保护条件
-//! - 抑制弧和重置弧
-//! - 矩阵和图两种表示方式
-//! - 可达图生成和分析
-//! - Graphviz图形化输出
+//! A weighted P/T Petri net library with global variable guards, designed for
+//! concurrent program verification.
 //!
-//! ## 示例
+//! ## Feature flags
+//!
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `cir-anchor` | off | Transitions carry CIR statement ID anchors for mapping counterexamples back to source locations |
+//!
+//! When `cir-anchor` is enabled, transitions can carry CIR statement ID anchors
+//! via [`Transition::with_anchor()`](model::Transition::with_anchor) and
+//! [`CvnNetBuilder::add_transition_with_anchor()`](builder::CvnNetBuilder::add_transition_with_anchor).
+//! Use [`CvnNetBuilder::build_with_anchor_check()`](builder::CvnNetBuilder::build_with_anchor_check)
+//! to additionally validate that every transition has at least one anchor (W7 / V105).
+//!
+//! ## Quick start
 //!
 //! ```rust
-//! use cpn::prelude::*;
+//! use cvn::builder::CvnNetBuilder;
+//! use cvn::model::*;
+//! use cvn::analysis::{AnalysisConfig, explore};
 //!
-//! // 创建一个简单的着色Petri网
-//! let mut net = PetriNet::new("simple_net");
+//! let net = CvnNetBuilder::new()
+//!     .add_control_place("p0", "main", "s0")
+//!     .add_control_place("p1", "main", "s1")
+//!     .set_return("p1")
+//!     .add_transition("t0", TransitionKind::Sequential)
+//!     .add_input_arc("p0", "t0", 1, BoolExpr::True)
+//!     .add_output_arc("t0", "p1", 1, None)
+//!     .set_initial_tokens("p0", 1)
+//!     .build()
+//!     .expect("valid net");
+//!
+//! let result = explore(&net, &AnalysisConfig::default()).unwrap();
+//! assert!(result.deadlocks.is_empty());
 //! ```
 
-pub mod color;
-pub mod guard;
-pub mod arc;
-pub mod place;
-pub mod transition;
-pub mod net;
-pub mod marking;
-pub mod reachability;
-pub mod visualization;
+pub mod analysis;
+pub mod builder;
 pub mod error;
-
-pub mod prelude {
-    //! 常用类型和trait的预导入模块
-    pub use crate::color::{ColorSet, Token, Multiset};
-    pub use crate::guard::{Guard, AlwaysTrue, CustomGuard};
-    pub use crate::arc::{Arc, ArcType, ArcExpression};
-    pub use crate::place::Place;
-    pub use crate::transition::Transition;
-    pub use crate::net::{PetriNet, NetBuilder};
-    pub use crate::marking::Marking;
-    pub use crate::reachability::{ReachabilityGraph, ReachabilityAnalyzer};
-    pub use crate::visualization::Visualizer;
-    pub use crate::error::{CpnError, Result};
-}
+pub mod export;
+pub mod model;
+pub mod net;
+pub(crate) mod validate;
