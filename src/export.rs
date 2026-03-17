@@ -84,11 +84,11 @@ pub fn to_dot(net: &CvnNet) -> String {
                 .unwrap();
             }
             NetNode::Transition(t) => {
-                let kind_str = format!("{:?}", t.kind);
+                let (kind_label, color, style) = transition_style(&t.kind);
                 writeln!(
                     out,
-                    "  \"{}\" [label=\"{}\\n({})\", shape=box, style=filled, fillcolor=gray90];",
-                    t.id, t.id, kind_str
+                    "  \"{}\" [label=\"{}\\n({})\", shape=box, style=\"{}\", fillcolor=gray90, color={}];",
+                    t.id, t.id, kind_label, style, color
                 )
                 .unwrap();
             }
@@ -146,4 +146,35 @@ pub fn to_dot(net: &CvnNet) -> String {
 
     writeln!(out, "}}").unwrap();
     out
+}
+
+/// Returns `(label, color, style)` for a transition node based on its kind.
+fn transition_style(kind: &TransitionKind) -> (String, &'static str, &'static str) {
+    match kind {
+        TransitionKind::Sequential => ("sequential".into(), "black", "filled"),
+        TransitionKind::Lock => ("lock".into(), "red", "filled"),
+        TransitionKind::Unlock => ("unlock".into(), "green", "filled"),
+        TransitionKind::ReadLock => ("read_lock".into(), "blue", "filled"),
+        TransitionKind::ReadUnlock => ("read_unlock".into(), "teal", "filled"),
+        TransitionKind::Acquire => ("acquire".into(), "red", "filled,dashed"),
+        TransitionKind::Release => ("release".into(), "green", "filled,dashed"),
+        TransitionKind::Send => ("send".into(), "cyan4", "filled"),
+        TransitionKind::Recv => ("recv".into(), "cyan4", "filled,bold"),
+        TransitionKind::VarRead => ("var_read".into(), "black", "filled"),
+        TransitionKind::VarWrite => ("var_write".into(), "orange", "filled"),
+        TransitionKind::AtomicStore => ("atomic_store".into(), "orange", "filled,bold"),
+        TransitionKind::BranchTrue => ("branch_T".into(), "green", "filled"),
+        TransitionKind::BranchFalse => ("branch_F".into(), "red", "filled"),
+        TransitionKind::Switch { label } => (format!("switch({label})"), "orange", "filled"),
+        TransitionKind::CasSuccess => ("cas_succ".into(), "green", "filled"),
+        TransitionKind::CasFailure => ("cas_fail".into(), "red", "filled"),
+        TransitionKind::Spawn => ("spawn".into(), "blue", "filled"),
+        TransitionKind::Join => ("join".into(), "blue", "filled,dashed"),
+        TransitionKind::Call => ("call".into(), "black", "filled,rounded"),
+        TransitionKind::CondvarWait => ("cv_wait".into(), "purple", "filled"),
+        TransitionKind::CondvarNotify { .. } => ("cv_notify".into(), "purple", "filled,dashed"),
+        TransitionKind::CondvarNotifyAll => ("cv_notify_all".into(), "purple", "filled,dashed"),
+        TransitionKind::CondvarReacquire => ("cv_reacquire".into(), "purple", "filled,dotted"),
+        TransitionKind::Return => ("return".into(), "black", "filled"),
+    }
 }
