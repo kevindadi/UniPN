@@ -1,13 +1,12 @@
-//! Test 2: Condvar signal loss.
+//! Test 2: Condvar signal loss with the new translation scheme.
 //!
 //! Models a condvar scenario where signal can be lost if notifier runs before
-//! the waiter reaches its wait point.
+//! the waiter reaches its wait point. The waiter waits unconditionally (no
+//! ready-flag check), so if notify fires before the waiter enters wait, the
+//! signal is lost and the waiter deadlocks.
 //!
-//! The notify is modeled as two competing transitions:
-//! - `t_n_notify_wake`: fires when a waiter IS present in w_waiting,
-//!   moves the waiter out of waiting state
-//! - `t_n_notify_noop`: fires unconditionally (over-approximation),
-//!   does NOT wake any waiter → signal loss if waiter later enters wait
+//! New translation uses global variables nw_cv (waiter count) and na_ws_wait
+//! (notify-all flag), plus resource place rp_cv (notify token pool).
 
 use cvn::analysis::{explore, AnalysisConfig, PropertyViolation, SearchStrategy};
 use cvn::builder::CvnNetBuilder;
@@ -17,8 +16,10 @@ fn build_condvar_net() -> cvn::net::CvnNet {
     CvnNetBuilder::new()
         // Resources
         .add_resource_place("mtx", "mtx", ResourceType::Mutex)
-        // Variable: ready (Bool, initially false)
-        .add_variable("ready", Val::bool(false))
+        .add_resource_place("rp_cv", "cv", ResourceType::Condvar)
+        // Variables
+        .add_variable("nw_cv", Val::int(0))
+        .add_variable("na_ws_wait", Val::bool(false))
         // main control places
         .add_control_place("main_start", "main", "ms0")
         .add_control_place("main_spawned_waiter", "main", "ms1")
@@ -29,20 +30,17 @@ fn build_condvar_net() -> cvn::net::CvnNet {
         // waiter control places
         .add_control_place("w_start", "waiter", "ws0")
         .add_control_place("w_locked", "waiter", "ws1")
-        .add_control_place("w_check_ready", "waiter", "ws2")
-        .add_control_place("w_reacquired", "waiter", "ws3")
-        .add_control_place("w_done", "waiter", "ws4")
+        .add_control_place("w_reacquired", "waiter", "ws2")
+        .add_control_place("w_done", "waiter", "ws3")
         .set_return("w_done")
-        // waiter wait place (condvar)
+        // waiter wait place & reacquire place
         .add_wait_place("w_waiting", "cv", "waiter", "ws_wait")
-        // waiter woken place (after notify_wake moves waiter out of waiting)
-        .add_control_place("w_woken", "waiter", "ws_woken")
+        .add_control_place("w_ra", "waiter", "ws_ra")
         // notifier control places
         .add_control_place("n_start", "notifier", "ns0")
         .add_control_place("n_locked", "notifier", "ns1")
-        .add_control_place("n_written", "notifier", "ns2")
-        .add_control_place("n_notified", "notifier", "ns3")
-        .add_control_place("n_done", "notifier", "ns4")
+        .add_control_place("n_notified", "notifier", "ns2")
+        .add_control_place("n_done", "notifier", "ns3")
         .set_return("n_done")
         // --- Transitions ---
         // main: spawn waiter
@@ -70,32 +68,57 @@ fn build_condvar_net() -> cvn::net::CvnNet {
         .add_input_arc("w_start", "t_w_lock", 1, BoolExpr::True)
         .add_input_arc("mtx", "t_w_lock", 1, BoolExpr::True)
         .add_output_arc("t_w_lock", "w_locked", 1, None)
-        // waiter: sequential step to branch point
-        .add_transition("t_w_seq", TransitionKind::Sequential)
-        .add_input_arc("w_locked", "t_w_seq", 1, BoolExpr::True)
-        .add_output_arc("t_w_seq", "w_check_ready", 1, None)
-        // waiter: branch ready == true → skip to reacquired
-        .add_transition("t_w_branch_true", TransitionKind::BranchTrue)
-        .add_input_arc(
-            "w_check_ready",
-            "t_w_branch_true",
+        // waiter: t_enter — unconditionally enters wait
+        .add_transition("t_w_enter", TransitionKind::CondvarWaitEnter)
+        .add_input_arc("w_locked", "t_w_enter", 1, BoolExpr::True)
+        .add_output_arc("t_w_enter", "w_waiting", 1, None)
+        .add_output_arc(
+            "t_w_enter",
+            "mtx",
             1,
-            eq(var("ready"), lit_bool(true)),
+            Some({
+                let mut u = VarUpdate::new();
+                u.insert("nw_cv".to_string(), add(var("nw_cv"), lit_int(1)));
+                u.insert("na_ws_wait".to_string(), lit_bool(false));
+                u
+            }),
         )
-        .add_output_arc("t_w_branch_true", "w_reacquired", 1, None)
-        // waiter: branch ready == false → wait(cv, release mtx)
-        .add_transition("t_w_branch_false", TransitionKind::BranchFalse)
-        .add_input_arc(
-            "w_check_ready",
-            "t_w_branch_false",
+        // waiter: t_wake1 — consume rp_cv token
+        .add_transition("t_w_wake1", TransitionKind::CondvarWakeByNotify)
+        .add_input_arc("w_waiting", "t_w_wake1", 1, BoolExpr::True)
+        .add_input_arc("rp_cv", "t_w_wake1", 1, BoolExpr::True)
+        .add_output_arc(
+            "t_w_wake1",
+            "w_ra",
             1,
-            eq(var("ready"), lit_bool(false)),
+            Some({
+                let mut u = VarUpdate::new();
+                u.insert("nw_cv".to_string(), sub(var("nw_cv"), lit_int(1)));
+                u
+            }),
         )
-        .add_output_arc("t_w_branch_false", "w_waiting", 1, None)
-        .add_output_arc("t_w_branch_false", "mtx", 1, None) // release mutex
-        // waiter: condvar wakeup → reacquire mutex (fired by notify_wake)
-        .add_transition("t_w_reacquire", TransitionKind::CondvarWait)
-        .add_input_arc("w_woken", "t_w_reacquire", 1, BoolExpr::True)
+        // waiter: t_wakeA — guarded by na flag
+        .add_transition("t_w_wakeA", TransitionKind::CondvarWakeByNotifyAll)
+        .add_input_arc(
+            "w_waiting",
+            "t_w_wakeA",
+            1,
+            eq(var("na_ws_wait"), lit_bool(true)),
+        )
+        .add_output_arc(
+            "t_w_wakeA",
+            "w_ra",
+            1,
+            Some({
+                let mut u = VarUpdate::new();
+                u.insert("nw_cv".to_string(), sub(var("nw_cv"), lit_int(1)));
+                u.insert("na_ws_wait".to_string(), lit_bool(false));
+                u
+            }),
+        )
+        // waiter: t_reacq — reacquire mutex
+        .add_transition("t_w_reacquire", TransitionKind::CondvarReacquire)
+        .add_input_arc("w_ra", "t_w_reacquire", 1, BoolExpr::True)
         .add_input_arc("mtx", "t_w_reacquire", 1, BoolExpr::True)
         .add_output_arc("t_w_reacquire", "w_reacquired", 1, None)
         // waiter: drop(mtx)
@@ -108,39 +131,25 @@ fn build_condvar_net() -> cvn::net::CvnNet {
         .add_input_arc("n_start", "t_n_lock", 1, BoolExpr::True)
         .add_input_arc("mtx", "t_n_lock", 1, BoolExpr::True)
         .add_output_arc("t_n_lock", "n_locked", 1, None)
-        // notifier: write(ready, true)
-        .add_transition("t_n_write", TransitionKind::VarWrite)
-        .add_input_arc("n_locked", "t_n_write", 1, BoolExpr::True)
-        .add_output_arc(
-            "t_n_write",
-            "n_written",
+        // notifier: notify — produces rp_cv token when nw_cv > 0
+        .add_transition("t_n_notify", TransitionKind::CondvarNotify)
+        .add_input_arc(
+            "n_locked",
+            "t_n_notify",
             1,
-            Some({
-                let mut u = VarUpdate::new();
-                u.insert("ready".to_string(), lit_bool(true));
-                u
-            }),
+            gt(var("nw_cv"), lit_int(0)),
         )
-        // notifier: notify variant 1 — wake the waiter (requires waiter in w_waiting)
-        .add_transition(
-            "t_n_notify_wake",
-            TransitionKind::CondvarNotify {
-                target_wait_place: "w_waiting".to_string(),
-            },
+        .add_output_arc("t_n_notify", "n_notified", 1, None)
+        .add_output_arc("t_n_notify", "rp_cv", 1, None)
+        // notifier: notify lost — fires when nw_cv == 0 (signal loss)
+        .add_transition("t_n_notify_lost", TransitionKind::CondvarNotifyLost)
+        .add_input_arc(
+            "n_locked",
+            "t_n_notify_lost",
+            1,
+            eq(var("nw_cv"), lit_int(0)),
         )
-        .add_input_arc("n_written", "t_n_notify_wake", 1, BoolExpr::True)
-        .add_input_arc("w_waiting", "t_n_notify_wake", 1, BoolExpr::True)
-        .add_output_arc("t_n_notify_wake", "n_notified", 1, None)
-        .add_output_arc("t_n_notify_wake", "w_woken", 1, None) // move waiter to woken
-        // notifier: notify variant 2 — noop (no waiter present, signal lost)
-        .add_transition(
-            "t_n_notify_noop",
-            TransitionKind::CondvarNotify {
-                target_wait_place: "w_waiting".to_string(),
-            },
-        )
-        .add_input_arc("n_written", "t_n_notify_noop", 1, BoolExpr::True)
-        .add_output_arc("t_n_notify_noop", "n_notified", 1, None)
+        .add_output_arc("t_n_notify_lost", "n_notified", 1, None)
         // notifier: drop(mtx)
         .add_transition("t_n_drop", TransitionKind::Unlock)
         .add_input_arc("n_notified", "t_n_drop", 1, BoolExpr::True)
@@ -163,7 +172,8 @@ fn condvar_signal_loss_detectable() {
 
     let result = explore(&net, &config).unwrap();
 
-    // Should find a deadlock: waiter stuck at w_waiting because notify_noop was taken
+    // Should find a deadlock: waiter stuck at w_waiting because notify_lost was
+    // taken (nw_cv == 0 at notify time, no rp_cv token deposited).
     let has_signal_loss_deadlock = result.deadlocks.iter().any(|dl| {
         dl.kind == PropertyViolation::Deadlock
             && dl
@@ -186,8 +196,8 @@ fn condvar_has_successful_path_too() {
     let config = AnalysisConfig::default();
     let result = explore(&net, &config).unwrap();
 
-    // There should also be states where everyone completes successfully
-    // (when notify_wake fires, or when waiter takes the true branch)
+    // When the waiter enters wait before the notifier notifies, the notify
+    // produces a rp_cv token and the waiter wakes up successfully.
     let has_terminal = result
         .reachability_graph
         .node_indices()

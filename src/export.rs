@@ -171,10 +171,14 @@ fn transition_style(kind: &TransitionKind) -> (String, &'static str, &'static st
         TransitionKind::Spawn => ("spawn".into(), "blue", "filled"),
         TransitionKind::Join => ("join".into(), "blue", "filled,dashed"),
         TransitionKind::Call => ("call".into(), "black", "filled,rounded"),
-        TransitionKind::CondvarWait => ("cv_wait".into(), "purple", "filled"),
-        TransitionKind::CondvarNotify { .. } => ("cv_notify".into(), "purple", "filled,dashed"),
-        TransitionKind::CondvarNotifyAll => ("cv_notify_all".into(), "purple", "filled,dashed"),
+        TransitionKind::CondvarWaitEnter => ("cv_wait_enter".into(), "purple", "filled"),
+        TransitionKind::CondvarWakeByNotify => ("cv_wake1".into(), "purple", "filled"),
+        TransitionKind::CondvarWakeByNotifyAll => ("cv_wakeA".into(), "purple", "filled"),
         TransitionKind::CondvarReacquire => ("cv_reacquire".into(), "purple", "filled,dotted"),
+        TransitionKind::CondvarNotify => ("cv_notify".into(), "purple", "filled,dashed"),
+        TransitionKind::CondvarNotifyLost => ("cv_notify_lost".into(), "purple", "filled,dashed"),
+        TransitionKind::CondvarNotifyAll => ("cv_notify_all".into(), "purple", "filled,dashed"),
+        TransitionKind::CondvarNotifyAllLost => ("cv_notify_all_lost".into(), "purple", "filled,dashed"),
         TransitionKind::Return => ("return".into(), "black", "filled"),
     }
 }

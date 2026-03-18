@@ -141,10 +141,8 @@ fn check_control_input_arcs(
     for t in net.transitions() {
         let count = control_input_count.get(&t.id).copied().unwrap_or(0);
         // Join transitions require 2 control inputs (current thread + joined thread).
-        // CondvarNotify with a target may take 2 control inputs (own + wait place).
         let max_allowed = match &t.kind {
             TransitionKind::Join => 2,
-            TransitionKind::CondvarNotify { .. } | TransitionKind::CondvarNotifyAll => 2,
             _ => 1,
         };
         if count == 0 {
