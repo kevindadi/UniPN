@@ -56,6 +56,8 @@ pub enum TransitionKind {
     VarRead,
     /// Write to a variable.
     VarWrite,
+    /// Atomic load.
+    AtomicLoad,
     /// Store to an atomic variable.
     AtomicStore,
     /// Branch taken when guard is true.

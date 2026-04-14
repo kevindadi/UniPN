@@ -162,6 +162,7 @@ fn transition_style(kind: &TransitionKind) -> (String, &'static str, &'static st
         TransitionKind::Recv => ("recv".into(), "cyan4", "filled,bold"),
         TransitionKind::VarRead => ("var_read".into(), "black", "filled"),
         TransitionKind::VarWrite => ("var_write".into(), "orange", "filled"),
+        TransitionKind::AtomicLoad => ("atomic_load".into(), "black", "filled"),
         TransitionKind::AtomicStore => ("atomic_store".into(), "orange", "filled,bold"),
         TransitionKind::BranchTrue => ("branch_T".into(), "green", "filled"),
         TransitionKind::BranchFalse => ("branch_F".into(), "red", "filled"),
@@ -178,7 +179,9 @@ fn transition_style(kind: &TransitionKind) -> (String, &'static str, &'static st
         TransitionKind::CondvarNotify => ("cv_notify".into(), "purple", "filled,dashed"),
         TransitionKind::CondvarNotifyLost => ("cv_notify_lost".into(), "purple", "filled,dashed"),
         TransitionKind::CondvarNotifyAll => ("cv_notify_all".into(), "purple", "filled,dashed"),
-        TransitionKind::CondvarNotifyAllLost => ("cv_notify_all_lost".into(), "purple", "filled,dashed"),
+        TransitionKind::CondvarNotifyAllLost => {
+            ("cv_notify_all_lost".into(), "purple", "filled,dashed")
+        }
         TransitionKind::Return => ("return".into(), "black", "filled"),
     }
 }
