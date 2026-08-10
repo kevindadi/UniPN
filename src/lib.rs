@@ -43,8 +43,9 @@ pub mod testgen;
 pub mod timed;
 
 pub use builder::NetBuilder;
-pub use expr::{BoolExpr, CmpOp, ConcreteVal, Expr, GuardResult, Op, Val, eval_expr, eval_guard};
+pub use expr::{BoolExpr, CmpOp, ConcreteVal, Expr, GuardResult, Op, Val, VarUpdate, eval_expr, eval_guard};
 pub use ids::{PlaceId, TransitionId, Weight};
+pub use model::{ControlSub, Place, PlaceKind, ResourceType, Transition, TransitionKind};
 pub use net::Net;
 pub use netlike::{FireError, NetLike};
 pub use state::{Marking, State, VarStore};
