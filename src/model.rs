@@ -135,6 +135,9 @@ pub struct Transition {
     pub id: crate::ids::TransitionId,
     pub name: String,
     pub kind: TransitionKind,
+    /// Source scope (function/def) that produced this transition, for
+    /// attribution (e.g. the ConcIR function or MIR def path).
+    pub scope: Option<String>,
     /// Anchoring back to the source (ConcIR sid or source line).
     pub anchors: Vec<String>,
     /// Disjunctive OR family (mutually-exclusive variants, to avoid false

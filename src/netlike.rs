@@ -69,6 +69,12 @@ pub trait NetLike {
         None
     }
 
+    /// Source scope (function/def) that produced this transition; none by
+    /// default.
+    fn transition_scope(&self, _t: TransitionId) -> Option<&str> {
+        None
+    }
+
     /// The preset of transition `t`: `(place, weight)`.
     fn pre_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)>;
 

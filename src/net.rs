@@ -124,6 +124,10 @@ impl NetLike for Net {
             .and_then(|tr| tr.family.as_deref())
     }
 
+    fn transition_scope(&self, t: TransitionId) -> Option<&str> {
+        self.transitions.get(t.index()).and_then(|tr| tr.scope.as_deref())
+    }
+
     fn pre_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> {
         self.pre
             .column(t)

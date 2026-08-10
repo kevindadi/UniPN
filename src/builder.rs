@@ -53,6 +53,7 @@ impl NetBuilder {
             id,
             name: name.into(),
             kind,
+            scope: None,
             anchors: Vec::new(),
             family: None,
             #[cfg(feature = "timed")]
@@ -107,6 +108,13 @@ impl NetBuilder {
     pub fn set_anchor(&mut self, transition: TransitionId, anchor: impl Into<String>) -> &mut Self {
         if let Some(t) = self.transitions.get_mut(transition.index()) {
             t.anchors.push(anchor.into());
+        }
+        self
+    }
+
+    pub fn set_scope(&mut self, transition: TransitionId, scope: impl Into<String>) -> &mut Self {
+        if let Some(t) = self.transitions.get_mut(transition.index()) {
+            t.scope = Some(scope.into());
         }
         self
     }
