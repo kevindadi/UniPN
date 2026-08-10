@@ -5,10 +5,12 @@
 //! as "thread terminal / wait point / resource" are exposed through
 //! [`crate::netlike::NetLike`] predicates.
 
+use serde::{Deserialize, Serialize};
+
 use crate::ids::Weight;
 
 /// Place kind (two classes: control flow / resource).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PlaceKind {
     /// Control-flow place: a token means a thread instance is at a control point.
     Control(ControlSub),
@@ -19,7 +21,7 @@ pub enum PlaceKind {
 
 /// Control-place structural sub-class (only for visualization/anchoring and the
 /// default semantic predicates).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ControlSub {
     /// A single ConcIR statement.
     Statement,
@@ -46,7 +48,7 @@ pub enum ControlSub {
 }
 
 /// Resource type (determines the initial-token semantics).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ResourceType {
     /// Mutex (initial tokens = 1).
     Mutex,
@@ -62,7 +64,7 @@ pub enum ResourceType {
 
 /// Unified transition classification (annotation; firing semantics is decided
 /// by the arc structure).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TransitionKind {
     // ── Sequential / control ──
     Sequential,
@@ -121,7 +123,7 @@ pub enum TransitionKind {
 }
 
 /// A place. `capacity` is optional (ConcBugDect has it, CVN does not).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Place {
     pub id: crate::ids::PlaceId,
     pub name: String,
@@ -130,7 +132,7 @@ pub struct Place {
 }
 
 /// A transition.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transition {
     pub id: crate::ids::TransitionId,
     pub name: String,

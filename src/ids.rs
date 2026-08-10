@@ -1,14 +1,15 @@
 //! Index-based identifiers: places/transitions use contiguous `usize` numbers
 //! so the hot path has zero hashing.
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Place identifier (index-based).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PlaceId(pub usize);
 
 /// Transition identifier (index-based).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TransitionId(pub usize);
 
 /// Arc weight (`u32` covers place capacities and the number of concurrent
