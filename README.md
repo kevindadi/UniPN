@@ -1,108 +1,111 @@
-# CVN — Concurrency Verification Net
+# UniPN — Unified Petri Net
 
-A Rust library implementing **weighted P/T Petri nets with global variable guards**, designed for formal verification of concurrent programs.
+A fast, extensible Petri net core shared by several frontends and analysis consumers:
 
-CVN (Concurrency Verification Net) is domain-specialized for concurrency bug detection: it models mutexes, RwLocks, semaphores, channels, and condition variables as resource places, and uses three-valued expression evaluation with Unknown over-approximation to soundly explore all possible interleavings.
-
-## How it works
-
+```text
+Frontends（建网）               Core（矩阵存储 + trait）          Consumers（分析）
+  ConcIR  ─┐                   Net（CSC incidence 矩阵）          死锁/死迁移/冲突集
+  Rust MIR┼─▶ NetLike ──────▶  explore (BFS/DFS/POR)              不变量 (invariants)
+  测试意图┘   (object-safe)    deadlock / dead_transition          测试用例生成 (testgen)
+  时间(PTPN) ─▶ Timed 预留     conflict / invariants / dot         时间/实时调度属性
 ```
-CIR (Concurrency IR) ──translate──▶ CVN ──analyze──▶ Counterexample ──map──▶ CIR sid
-```
 
-This library handles the **CVN layer only** — CIR parsing and CIR→CVN translation are out of scope.
+## 设计原则
 
-## Quick start
+1. **Trait-first**：`NetLike` 是唯一契约（object-safe）。任何网（CVN、
+   ConcBugDect MIR→PN、未来的测试/时间网）只需实现它即可被共享算法消费。
+   **纯 P/T 网**只需填结构谓词（`pre_arcs` / `post_arcs` / `initial_state`），
+   `enabled_transitions` 与 `fire` 直接用 trait 默认实现。
+2. **矩阵底层**：核心 `Net` 用 **CSC 稀疏列**存储 `Pre/Post` incidence，
+   enabled/fire 热路径是 O(弧数) 而非 O(|P|·|T|)；需要线性代数时
+   （不变量等）才物化稠密 `C = Post − Pre`。
+3. **语义外置**：`PlaceKind` / `TransitionKind` 只是标注；"线程终点 / 等待点 /
+   资源"等语义由前端谓词（`is_thread_terminal` / `is_wait_point` /
+   `is_resource`）暴露，common 层不做硬编码。`return` 是函数返回而非线程结束；
+   spawn/join/branch 都是弧结构模式。
+4. **可扩展**：`timed` / `invariants` 是 feature 门控的扩展位。
+
+## 快速开始
 
 ```rust
-use cvn::builder::CvnNetBuilder;
-use cvn::model::*;
-use cvn::analysis::{AnalysisConfig, explore};
+use unipn::analysis::{AnalysisConfig, explore};
+use unipn::expr::BoolExpr;
+use unipn::model::{ControlSub, PlaceKind, TransitionKind};
+use unipn::{NetBuilder, NetLike};
 
-let net = CvnNetBuilder::new()
-    .add_control_place("p0", "main", "s0")
-    .add_control_place("p1", "main", "s1")
-    .set_return("p1")
-    .add_transition("t0", TransitionKind::Sequential)
-    .add_input_arc("p0", "t0", 1, BoolExpr::True)
-    .add_output_arc("t0", "p1", 1, None)
-    .set_initial_tokens("p0", 1)
-    .build()
-    .expect("valid net");
+let mut b = NetBuilder::new();
+let p0 = b.add_place("p0", PlaceKind::Control(ControlSub::Statement));
+let p1 = b.add_place("p1", PlaceKind::Control(ControlSub::ThreadEnd));
+let t0 = b.add_transition("t0", TransitionKind::Sequential);
+b.add_input_arc(p0, t0, 1, BoolExpr::True);
+b.add_output_arc(t0, p1, 1, None);
+b.set_initial_tokens(p0, 1);
+let net = b.build();
 
-let result = explore(&net, &AnalysisConfig::default()).unwrap();
-assert!(result.deadlocks.is_empty());
+let rg = explore(&net, &AnalysisConfig::default());
+assert!(rg.deadlocks.is_empty());
 ```
 
-## Feature Flags
+### 扩展一个自定义网
 
-| Feature | Default | Description |
-|---------|---------|-------------|
-| `cir-anchor` | off | Transitions carry CIR statement ID anchors for mapping counterexamples back to source locations |
-
-When `cir-anchor` is enabled, use `add_transition_with_anchor()` to attach SIDs and
-`build_with_anchor_check()` to enforce W7 (every transition must have at least one anchor).
-
-## Module structure
-
-```
-cvn
-├── model/            Core data types
-│   ├── place         PlaceId, Place, PlaceKind (Control / Resource / Wait)
-│   ├── transition    TransitionId, Transition, TransitionKind
-│   ├── arc           InputArcData, OutputArcData, VarUpdate
-│   ├── val           Val (Concrete / Unknown), ConcreteVal, ResourceType
-│   ├── expr          Expr, BoolExpr, GuardResult, eval_expr, eval_guard, DSL helpers
-│   └── state         Marking (sparse FxHashMap), VarStore (IndexMap), State
-│
-├── net               CvnNet — petgraph DiGraph wrapper with enabled/fire semantics
-├── builder           CvnNetBuilder — chain-style construction with build-time validation
-├── validate          Well-formedness checks (W2–W9)
-├── error             CvnError with error codes V0xx–V4xx
-│
-├── analysis/         State space exploration
-│   ├── search        BFS/DFS engine, reachability graph, AnalysisConfig
-│   ├── deadlock      is_terminal, is_deadlock, blocked_places
-│   └── counterexample Counterexample, FiringStep, PropertyViolation
-│
-└── export            DOT format output for Graphviz visualization
+```rust
+impl NetLike for MyNet {
+    fn num_places(&self) -> usize { /* ... */ }
+    fn num_transitions(&self) -> usize { /* ... */ }
+    fn pre_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> { /* ... */ }
+    fn post_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> { /* ... */ }
+    fn initial_state(&self) -> State { /* ... */ }
+    // enabled_transitions / fire 用默认纯 P/T 实现；带 guard 的前端自行覆盖。
+}
+// 之后共享算法直接可用：
+let rg = explore(&my_net, &AnalysisConfig::default());
 ```
 
-## Formal definition
+## 模块
 
 ```
-CVN = ( P, T, A_in, A_out, V, I_m, I_v, μ )
+src/
+├── ids.rs        PlaceId/TransitionId（索引制）、Weight
+├── model.rs      PlaceKind / TransitionKind / Place / Transition（标注）
+├── expr.rs       Val / Expr / BoolExpr（可选数据模型，guard/update 用）
+├── state.rs      Marking（稠密向量）/ VarStore / State
+├── storage.rs    CSC 稀疏列 Incidence + 稠密效果矩阵 C = Post − Pre
+├── netlike.rs    NetLike trait（object-safe）+ 纯 P/T 默认实现
+├── net.rs        Net：矩阵存储网（可选 guard/update/容量/变量域）
+├── builder.rs    NetBuilder
+├── analysis/
+│   ├── explore.rs      BFS / DFS / POR(sleep-set) → ReachabilityGraph
+│   ├── deadlock.rs     死锁判定 + 阻塞库位
+│   ├── dead_transition.rs  行为死迁移（含 OR 族处理）
+│   ├── conflict.rs     共享输入库位的变迁对（测试生成选竞争点）
+│   ├── invariants.rs   库位/变迁不变量（feature `invariants`）
+│   └── timed.rs        状态类 DBM 时间分析预留（feature `timed`）
+├── export.rs      Graphviz DOT
+├── testgen.rs     可达图路径 → 测试用例 schedule（纯 consumer）
+└── timed.rs       时间扩展类型：StaticInterval / Priority / ClockClass
 ```
 
-| Component | Description |
-|-----------|-------------|
-| P = P_c ⊎ P_r ⊎ P_w | Places (control / resource / wait) |
-| T | Transitions |
-| A_in ⊆ P × T | Input arcs with weight and guard |
-| A_out ⊆ T × P | Output arcs with weight and optional var update |
-| V | Global variable store |
-| I_m, I_v | Initial marking and variable values |
-| μ: T → 𝒫(SID) | Anchor mapping to CIR statement IDs (requires `cir-anchor` feature) |
+## Feature flags
 
-## Key features
+| Feature      | Default | 说明 |
+| ------------ | ------- | ---- |
+| `invariants` | on      | 库位/变迁不变量（Gaussian nullspace，BigInt 精确） |
+| `timed`      | off     | 时间/优先级扩展（`Transition.timing/.priority`、`AnalysisMode::Timed`、PTPN 状态类 DBM 桥） |
 
-- **Sparse marking**: only stores places with tokens > 0 (via `FxHashMap`)
-- **Three-valued evaluation**: `Unknown` absorbs through expressions; guards returning `Unknown` are treated as satisfied (sound over-approximation)
-- **Builder pattern**: `CvnNetBuilder` with comprehensive well-formedness validation at build time
-- **petgraph integration**: the net is a `DiGraph<NetNode, NetEdge>` bipartite graph, accessible via `net.petgraph()` for custom algorithms
-- **State space search**: BFS (shortest counterexample) and DFS (lower memory), configurable state limit
-- **Deadlock detection**: automatic detection with counterexample traces (anchored to CIR SIDs when `cir-anchor` is enabled)
-- **DOT export**: Graphviz visualization with styled nodes by place type
+## 时间分析（PTPN）预留
 
-## Error codes
+`timed` 特征引入静态时间区间 `[dmin, dmax]`、固定优先级与时钟类。目标是对接
+[PTPN](https://github.com/kevindadi/PTPN)：统一网经导出桥变为 PTPN 的
+`.ptpn` / TDG JSON，由 PTPN 做状态类（DBM）可达分析后回传结果。IR 层面只加
+可选标注，不动核心 firing 语义。
 
-| Range | Category |
-|-------|----------|
-| V0xx | Structural errors (duplicate IDs, missing references, zero weights) |
-| V1xx | Well-formedness violations (W2–W7) |
-| V2xx | Branch completeness (W8–W9) |
-| V3xx | Analysis-phase errors (token underflow, state explosion) |
-| V4xx | Resource semantics (initial token mismatches) |
+## 测试
+
+```bash
+cargo test
+cargo test --features timed
+cargo test --no-default-features
+```
 
 ## License
 

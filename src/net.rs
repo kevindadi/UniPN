@@ -1,270 +1,267 @@
-//! The CVN network structure backed by a petgraph directed graph.
-//!
-//! The net is a bipartite graph where nodes are either [`Place`]s or [`Transition`]s,
-//! and edges are either input arcs (Place → Transition) or output arcs (Transition → Place).
+//! 矩阵底层 `Net`：CSC incidence + 可选 guard/update/容量/变量域。
 
-use crate::error::{CvnError, ErrorCode, ErrorLocation};
-use crate::model::*;
-use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::Direction;
 use rustc_hash::FxHashMap;
-use serde::{Deserialize, Serialize};
 
-/// A node in the CVN bipartite graph.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum NetNode {
-    /// A place node.
-    Place(Place),
-    /// A transition node.
-    Transition(Transition),
-}
+use crate::expr::{BoolExpr, ConcreteVal, Val, VarUpdate, eval_expr, eval_guard};
+use crate::ids::{PlaceId, TransitionId, Weight};
+use crate::model::{ControlSub, Place, PlaceKind, ResourceType, Transition, TransitionKind};
+use crate::netlike::{FireError, NetLike};
+use crate::state::{Marking, State, VarStore};
+use crate::storage::Incidence;
 
-impl NetNode {
-    /// Returns the place if this is a place node.
-    pub fn as_place(&self) -> Option<&Place> {
-        match self {
-            Self::Place(p) => Some(p),
-            Self::Transition(_) => None,
-        }
-    }
-
-    /// Returns the transition if this is a transition node.
-    pub fn as_transition(&self) -> Option<&Transition> {
-        match self {
-            Self::Place(_) => None,
-            Self::Transition(t) => Some(t),
-        }
-    }
-}
-
-/// An edge in the CVN bipartite graph.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum NetEdge {
-    /// Input arc: Place → Transition (weight + guard).
-    Input(InputArcData),
-    /// Output arc: Transition → Place (weight + optional update).
-    Output(OutputArcData),
-}
-
-/// The CVN (Concurrency Verification Net) — a weighted P/T Petri net with global variable guards.
-///
-/// Internally represented as a petgraph [`DiGraph`] with fast ID-to-index lookup maps.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CvnNet {
-    /// The underlying petgraph directed graph.
-    graph: DiGraph<NetNode, NetEdge>,
-    /// Place ID → NodeIndex lookup.
-    place_index: FxHashMap<PlaceId, NodeIndex>,
-    /// Transition ID → NodeIndex lookup.
-    transition_index: FxHashMap<TransitionId, NodeIndex>,
-    /// Initial marking (token distribution).
+/// 统一的矩阵存储网。
+#[derive(Clone, Debug)]
+pub struct Net {
+    places: Vec<Place>,
+    transitions: Vec<Transition>,
+    pre: Incidence,
+    post: Incidence,
+    /// 输入弧守卫（稀疏，仅带数据网才有）。
+    pre_guards: FxHashMap<(TransitionId, PlaceId), BoolExpr>,
+    /// 输出弧变量更新（稀疏）。
+    post_updates: FxHashMap<(TransitionId, PlaceId), VarUpdate>,
     initial_marking: Marking,
-    /// Initial variable store.
-    initial_vars: VarStore,
+    initial_vars: Option<VarStore>,
+    /// 有界 Int 域：更新越界禁用变迁（可判定性）。
+    var_domains: FxHashMap<String, (i64, i64)>,
 }
 
-impl CvnNet {
-    /// Create a new CvnNet from pre-built components (used by the builder).
+impl Net {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_parts(
-        graph: DiGraph<NetNode, NetEdge>,
-        place_index: FxHashMap<PlaceId, NodeIndex>,
-        transition_index: FxHashMap<TransitionId, NodeIndex>,
+        places: Vec<Place>,
+        transitions: Vec<Transition>,
+        pre: Incidence,
+        post: Incidence,
+        pre_guards: FxHashMap<(TransitionId, PlaceId), BoolExpr>,
+        post_updates: FxHashMap<(TransitionId, PlaceId), VarUpdate>,
         initial_marking: Marking,
-        initial_vars: VarStore,
+        initial_vars: Option<VarStore>,
+        var_domains: FxHashMap<String, (i64, i64)>,
     ) -> Self {
         Self {
-            graph,
-            place_index,
-            transition_index,
+            places,
+            transitions,
+            pre,
+            post,
+            pre_guards,
+            post_updates,
             initial_marking,
             initial_vars,
+            var_domains,
         }
     }
 
-    /// Access the underlying petgraph directed graph.
-    pub fn petgraph(&self) -> &DiGraph<NetNode, NetEdge> {
-        &self.graph
+    pub fn place(&self, p: PlaceId) -> Option<&Place> {
+        self.places.get(p.index())
     }
 
-    /// Get the initial state (marking + variable store).
-    pub fn initial_state(&self) -> State {
+    pub fn transition(&self, t: TransitionId) -> Option<&Transition> {
+        self.transitions.get(t.index())
+    }
+
+    pub fn places(&self) -> &[Place] {
+        &self.places
+    }
+
+    pub fn transitions(&self) -> &[Transition] {
+        &self.transitions
+    }
+
+    pub fn pre(&self) -> &Incidence {
+        &self.pre
+    }
+
+    pub fn post(&self) -> &Incidence {
+        &self.post
+    }
+
+    pub fn var_domain(&self, var: &str) -> Option<(i64, i64)> {
+        self.var_domains.get(var).copied()
+    }
+}
+
+impl NetLike for Net {
+    fn num_places(&self) -> usize {
+        self.places.len()
+    }
+
+    fn num_transitions(&self) -> usize {
+        self.transitions.len()
+    }
+
+    fn place_label(&self, p: PlaceId) -> String {
+        self.places
+            .get(p.index())
+            .map_or_else(|| format!("p{}", p.index()), |pl| pl.name.clone())
+    }
+
+    fn place_kind(&self, p: PlaceId) -> Option<PlaceKind> {
+        self.places.get(p.index()).map(|pl| pl.kind.clone())
+    }
+
+    fn transition_label(&self, t: TransitionId) -> String {
+        self.transitions
+            .get(t.index())
+            .map_or_else(|| format!("t{}", t.index()), |tr| tr.name.clone())
+    }
+
+    fn transition_kind(&self, t: TransitionId) -> Option<TransitionKind> {
+        self.transitions.get(t.index()).map(|tr| tr.kind.clone())
+    }
+
+    fn transition_anchors(&self, t: TransitionId) -> Vec<String> {
+        self.transitions
+            .get(t.index())
+            .map_or_else(Vec::new, |tr| tr.anchors.clone())
+    }
+
+    fn transition_family(&self, t: TransitionId) -> Option<&str> {
+        self.transitions
+            .get(t.index())
+            .and_then(|tr| tr.family.as_deref())
+    }
+
+    fn pre_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> {
+        self.pre
+            .column(t)
+            .iter()
+            .map(|&(p, w)| (PlaceId(p), w))
+            .collect()
+    }
+
+    fn post_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> {
+        self.post
+            .column(t)
+            .iter()
+            .map(|&(p, w)| (PlaceId(p), w))
+            .collect()
+    }
+
+    fn is_thread_terminal(&self, p: PlaceId) -> bool {
+        matches!(
+            self.place_kind(p),
+            Some(PlaceKind::Control(
+                ControlSub::ThreadEnd | ControlSub::FunctionEnd
+            ))
+        )
+    }
+
+    fn is_wait_point(&self, p: PlaceId) -> bool {
+        matches!(
+            self.place_kind(p),
+            Some(PlaceKind::Control(ControlSub::WaitPoint))
+        )
+    }
+
+    fn is_resource(&self, p: PlaceId) -> bool {
+        matches!(self.place_kind(p), Some(PlaceKind::Resource(_)))
+    }
+
+    fn initial_state(&self) -> State {
         State::new(self.initial_marking.clone(), self.initial_vars.clone())
     }
 
-    /// Get the initial marking.
-    pub fn initial_marking(&self) -> &Marking {
-        &self.initial_marking
-    }
-
-    /// Get the initial variable store.
-    pub fn initial_vars(&self) -> &VarStore {
-        &self.initial_vars
-    }
-
-    /// Look up the graph node index for a place.
-    pub fn place_node(&self, id: &PlaceId) -> Option<NodeIndex> {
-        self.place_index.get(id).copied()
-    }
-
-    /// Look up the graph node index for a transition.
-    pub fn transition_node(&self, id: &TransitionId) -> Option<NodeIndex> {
-        self.transition_index.get(id).copied()
-    }
-
-    /// Get a place by its ID.
-    pub fn place(&self, id: &PlaceId) -> Option<&Place> {
-        self.place_node(id)
-            .and_then(|idx| self.graph[idx].as_place())
-    }
-
-    /// Get a transition by its ID.
-    pub fn transition(&self, id: &TransitionId) -> Option<&Transition> {
-        self.transition_node(id)
-            .and_then(|idx| self.graph[idx].as_transition())
-    }
-
-    /// Iterate over all place IDs.
-    pub fn place_ids(&self) -> impl Iterator<Item = &PlaceId> {
-        self.place_index.keys()
-    }
-
-    /// Iterate over all transition IDs.
-    pub fn transition_ids(&self) -> impl Iterator<Item = &TransitionId> {
-        self.transition_index.keys()
-    }
-
-    /// Iterate over all places.
-    pub fn places(&self) -> impl Iterator<Item = &Place> {
-        self.place_index.values().map(|&idx| {
-            self.graph[idx]
-                .as_place()
-                .expect("place_index points to Place node")
-        })
-    }
-
-    /// Iterate over all transitions.
-    pub fn transitions(&self) -> impl Iterator<Item = &Transition> {
-        self.transition_index.values().map(|&idx| {
-            self.graph[idx]
-                .as_transition()
-                .expect("transition_index points to Transition node")
-        })
-    }
-
-    /// Get the input arcs for a transition (Place → Transition edges).
-    pub fn input_arcs(&self, tid: &TransitionId) -> Vec<&InputArcData> {
-        let Some(&t_idx) = self.transition_index.get(tid) else {
-            return Vec::new();
-        };
-        self.graph
-            .edges_directed(t_idx, Direction::Incoming)
-            .filter_map(|e| match e.weight() {
-                NetEdge::Input(data) => Some(data),
-                NetEdge::Output(_) => None,
-            })
-            .collect()
-    }
-
-    /// Get the output arcs for a transition (Transition → Place edges).
-    pub fn output_arcs(&self, tid: &TransitionId) -> Vec<&OutputArcData> {
-        let Some(&t_idx) = self.transition_index.get(tid) else {
-            return Vec::new();
-        };
-        self.graph
-            .edges_directed(t_idx, Direction::Outgoing)
-            .filter_map(|e| match e.weight() {
-                NetEdge::Output(data) => Some(data),
-                NetEdge::Input(_) => None,
-            })
-            .collect()
-    }
-
-    /// Check whether a transition is enabled in the given state.
-    ///
-    /// A transition is enabled iff:
-    /// - All input arcs have sufficient tokens (`M(p) >= weight`)
-    /// - All input arc guards do not evaluate to `false`
-    pub fn is_enabled(&self, tid: &TransitionId, state: &State) -> bool {
-        let input_arcs = self.input_arcs(tid);
-        for arc in &input_arcs {
-            if state.tokens(&arc.place) < arc.weight {
-                return false;
-            }
-            let guard_result = eval_guard(&arc.guard, &state.vars);
-            if guard_result == GuardResult::False {
-                return false;
+    fn enabled_transitions(&self, s: &State) -> Vec<TransitionId> {
+        let mut out = Vec::new();
+        for t in 0..self.transitions.len() {
+            let tid = TransitionId(t);
+            if self.is_enabled(tid, s) {
+                out.push(tid);
             }
         }
-        true
+        out
     }
 
-    /// Get all enabled transition IDs in the given state.
-    pub fn enabled_transitions(&self, state: &State) -> Vec<TransitionId> {
-        self.transition_index
-            .keys()
-            .filter(|tid| self.is_enabled(tid, state))
-            .cloned()
-            .collect()
-    }
-
-    /// Fire a transition, producing a new state.
-    ///
-    /// Returns an error if the transition is not enabled (insufficient tokens).
-    pub fn fire(
-        &self,
-        tid: &TransitionId,
-        state: &State,
-    ) -> Result<State, CvnError> {
-        let mut new_marking = state.marking.clone();
-        let mut new_vars = state.vars.clone();
-
-        // Consume tokens from input arcs
-        for arc in self.input_arcs(tid) {
-            let current = new_marking.get(&arc.place).copied().unwrap_or(0);
-            if current < arc.weight {
-                return Err(CvnError::new(
-                    ErrorCode::V301,
-                    format!(
-                        "insufficient tokens at place '{}': have {}, need {}",
-                        arc.place, current, arc.weight
-                    ),
-                    ErrorLocation::Arc {
-                        place: arc.place.clone(),
-                        transition: tid.clone(),
-                    },
-                ));
-            }
-            let remaining = current - arc.weight;
-            if remaining == 0 {
-                new_marking.remove(&arc.place);
-            } else {
-                new_marking.insert(arc.place.clone(), remaining);
-            }
+    fn fire(&self, t: TransitionId, s: &State) -> Result<State, FireError> {
+        if t.index() >= self.transitions.len() {
+            return Err(FireError::OutOfBounds(t));
+        }
+        if !self.is_enabled(t, s) {
+            return Err(FireError::NotEnabled(t));
         }
 
-        // Produce tokens on output arcs and apply variable updates
-        for arc in self.output_arcs(tid) {
-            let current = new_marking.get(&arc.place).copied().unwrap_or(0);
-            new_marking.insert(arc.place.clone(), current + arc.weight);
+        let mut next = s.clone();
+        for &(p, w) in self.pre.column(t) {
+            let pid = PlaceId(p);
+            let tokens = next.marking.tokens(pid);
+            next.marking.set(pid, tokens - w);
+        }
+        for &(p, w) in self.post.column(t) {
+            let pid = PlaceId(p);
+            let after = next.marking.tokens(pid) + w;
+            if let Some(cap) = self.capacity_of(pid) {
+                if after > cap {
+                    return Err(FireError::Capacity {
+                        place: pid,
+                        after,
+                        capacity: cap,
+                    });
+                }
+            }
+            next.marking.set(pid, after);
+        }
 
-            if let Some(update) = &arc.update {
-                for (var_name, expr) in update {
-                    let val = eval_expr(expr, &state.vars);
-                    new_vars.insert(var_name.clone(), val);
+        // 变量更新：对原状态求值后写入新状态。
+        let mut applied = false;
+        let mut store = next.vars.clone().unwrap_or_default();
+        for (&(tt, _), update) in &self.post_updates {
+            if tt == t {
+                applied = true;
+                for (var, expr) in update {
+                    store.insert(var.clone(), eval_expr(expr, s.vars()));
                 }
             }
         }
+        if applied {
+            next.vars = Some(store);
+        }
 
-        Ok(State::new(new_marking, new_vars))
+        Ok(next)
+    }
+}
+
+impl Net {
+    fn capacity_of(&self, p: PlaceId) -> Option<u32> {
+        let place = self.places.get(p.index())?;
+        if let Some(cap) = place.capacity {
+            return Some(cap);
+        }
+        match &place.kind {
+            PlaceKind::Resource(ResourceType::Mutex) => Some(1),
+            PlaceKind::Resource(ResourceType::RwLock { max_readers }) => Some(*max_readers),
+            PlaceKind::Resource(ResourceType::Semaphore { count }) => Some(*count),
+            _ => None,
+        }
     }
 
-    /// Get the number of places in the net.
-    pub fn place_count(&self) -> usize {
-        self.place_index.len()
-    }
-
-    /// Get the number of transitions in the net.
-    pub fn transition_count(&self) -> usize {
-        self.transition_index.len()
+    fn is_enabled(&self, t: TransitionId, s: &State) -> bool {
+        for &(p, w) in self.pre.column(t) {
+            let pid = PlaceId(p);
+            if s.marking.tokens(pid) < w {
+                return false;
+            }
+            if let Some(guard) = self.pre_guards.get(&(t, pid)) {
+                if !eval_guard(guard, s.vars()).is_not_false() {
+                    return false;
+                }
+            }
+        }
+        // 有界 Int 域：更新越界则禁用。
+        for (&(tt, _), update) in &self.post_updates {
+            if tt != t {
+                continue;
+            }
+            for (var, expr) in update {
+                if let Some((lo, hi)) = self.var_domains.get(var) {
+                    if let Val::Concrete(ConcreteVal::Int(v)) = eval_expr(expr, s.vars())
+                        && (v < *lo || v > *hi)
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 }

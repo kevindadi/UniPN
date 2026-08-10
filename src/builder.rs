@@ -1,290 +1,154 @@
-//! Builder for constructing a [`CvnNet`] with validation.
-//!
-//! Use [`CvnNetBuilder`] to incrementally add places, transitions, and arcs,
-//! then call [`build()`](CvnNetBuilder::build) to perform well-formedness
-//! validation and produce a [`CvnNet`].
+//! 链式构建器：`NetBuilder`。
 
-use crate::error::CvnError;
-use crate::model::*;
-use crate::net::{CvnNet, NetEdge, NetNode};
-use crate::validate;
 use indexmap::IndexMap;
-use petgraph::graph::DiGraph;
 use rustc_hash::FxHashMap;
 
-/// Builder for constructing a CVN network.
-///
-/// # Example
-///
-/// ```
-/// use cvn::builder::CvnNetBuilder;
-/// use cvn::model::*;
-///
-/// let net = CvnNetBuilder::new()
-///     .add_control_place("p0", "main", "s0")
-///     .add_control_place("p1", "main", "s1")
-///     .set_return("p1")
-///     .add_transition("t0", TransitionKind::Sequential)
-///     .add_input_arc("p0", "t0", 1, BoolExpr::True)
-///     .add_output_arc("t0", "p1", 1, None)
-///     .set_initial_tokens("p0", 1)
-///     .build();
-/// assert!(net.is_ok());
-/// ```
-pub struct CvnNetBuilder {
-    places: IndexMap<String, Place>,
-    transitions: IndexMap<String, Transition>,
-    input_arcs: Vec<InputArcData>,
-    output_arcs: Vec<OutputArcData>,
-    initial_tokens: FxHashMap<String, u32>,
-    initial_vars: IndexMap<String, Val>,
-    return_places: Vec<String>,
+use crate::expr::{BoolExpr, Val, VarUpdate};
+use crate::ids::{PlaceId, TransitionId, Weight};
+use crate::model::{Place, PlaceKind, Transition, TransitionKind};
+use crate::net::Net;
+use crate::state::{Marking, VarStore};
+use crate::storage::Incidence;
+
+/// 统一构建器。
+#[derive(Default)]
+pub struct NetBuilder {
+    places: Vec<Place>,
+    transitions: Vec<Transition>,
+    pre: Incidence,
+    post: Incidence,
+    pre_guards: FxHashMap<(TransitionId, PlaceId), BoolExpr>,
+    post_updates: FxHashMap<(TransitionId, PlaceId), VarUpdate>,
+    initial_marking: Vec<u32>,
+    initial_vars: Option<VarStore>,
+    var_domains: FxHashMap<String, (i64, i64)>,
 }
 
-impl Default for CvnNetBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CvnNetBuilder {
-    /// Create a new empty builder.
+impl NetBuilder {
     pub fn new() -> Self {
         Self {
-            places: IndexMap::new(),
-            transitions: IndexMap::new(),
-            input_arcs: Vec::new(),
-            output_arcs: Vec::new(),
-            initial_tokens: FxHashMap::default(),
-            initial_vars: IndexMap::new(),
-            return_places: Vec::new(),
+            pre: Incidence::with_transitions(0),
+            post: Incidence::with_transitions(0),
+            ..Default::default()
         }
     }
 
-    /// Add a control place (thread at a specific statement).
-    pub fn add_control_place(
-        mut self,
-        id: impl Into<String>,
-        fn_name: impl Into<String>,
-        sid: impl Into<String>,
-    ) -> Self {
-        let id = id.into();
-        let place = Place::new(
-            PlaceId::new(id.clone()),
-            PlaceKind::Control {
-                fn_name: fn_name.into(),
-                sid: sid.into(),
-            },
-        );
-        self.places.insert(id, place);
-        self
-    }
+    // ── 节点 ──
 
-    /// Add a resource place.
-    pub fn add_resource_place(
-        mut self,
-        id: impl Into<String>,
-        res_name: impl Into<String>,
-        resource_type: ResourceType,
-    ) -> Self {
-        let id = id.into();
-        let place = Place::new(
-            PlaceId::new(id.clone()),
-            PlaceKind::Resource {
-                res_name: res_name.into(),
-                resource_type,
-            },
-        );
-        self.places.insert(id, place);
-        self
-    }
-
-    /// Add a wait place (condvar wait point).
-    pub fn add_wait_place(
-        mut self,
-        id: impl Into<String>,
-        cv_name: impl Into<String>,
-        fn_name: impl Into<String>,
-        sid: impl Into<String>,
-    ) -> Self {
-        let id = id.into();
-        let place = Place::new(
-            PlaceId::new(id.clone()),
-            PlaceKind::Wait {
-                cv_name: cv_name.into(),
-                fn_name: fn_name.into(),
-                sid: sid.into(),
-            },
-        );
-        self.places.insert(id, place);
-        self
-    }
-
-    /// Mark a place as a return/terminal place.
-    pub fn set_return(mut self, place_id: impl Into<String>) -> Self {
-        self.return_places.push(place_id.into());
-        self
-    }
-
-    /// Add a transition.
-    pub fn add_transition(
-        mut self,
-        id: impl Into<String>,
-        kind: TransitionKind,
-    ) -> Self {
-        let id = id.into();
-        let t = Transition::new(TransitionId::new(id.clone()), kind);
-        self.transitions.insert(id, t);
-        self
-    }
-
-    /// Add a transition with CIR statement ID anchors.
-    #[cfg(feature = "cir-anchor")]
-    pub fn add_transition_with_anchor(
-        mut self,
-        id: impl Into<String>,
-        kind: TransitionKind,
-        sids: &[impl AsRef<str>],
-    ) -> Self {
-        let id = id.into();
-        let t = Transition::with_anchor(
-            TransitionId::new(id.clone()),
+    pub fn add_place(&mut self, name: impl Into<String>, kind: PlaceKind) -> PlaceId {
+        let id = PlaceId(self.places.len());
+        self.places.push(Place {
+            id,
+            name: name.into(),
             kind,
-            sids.iter().map(|s| s.as_ref().to_string()),
-        );
-        self.transitions.insert(id, t);
-        self
+            capacity: None,
+        });
+        self.initial_marking.push(0);
+        id
     }
 
-    /// Add an input arc (Place → Transition).
+    pub fn add_transition(&mut self, name: impl Into<String>, kind: TransitionKind) -> TransitionId {
+        let id = TransitionId(self.transitions.len());
+        self.transitions.push(Transition {
+            id,
+            name: name.into(),
+            kind,
+            anchors: Vec::new(),
+            family: None,
+            #[cfg(feature = "timed")]
+            timing: None,
+            #[cfg(feature = "timed")]
+            priority: None,
+        });
+        self.pre = Incidence::with_transitions(self.transitions.len());
+        self.post = Incidence::with_transitions(self.transitions.len());
+        id
+    }
+
+    // ── 弧 ──
+
     pub fn add_input_arc(
-        mut self,
-        place_id: impl Into<String>,
-        transition_id: impl Into<String>,
-        weight: u32,
+        &mut self,
+        place: PlaceId,
+        transition: TransitionId,
+        weight: Weight,
         guard: BoolExpr,
-    ) -> Self {
-        self.input_arcs.push(InputArcData {
-            place: PlaceId::new(place_id),
-            transition: TransitionId::new(transition_id),
-            weight,
-            guard,
-        });
+    ) -> &mut Self {
+        self.pre.add(transition, place, weight);
+        if guard != BoolExpr::True {
+            self.pre_guards.insert((transition, place), guard);
+        }
         self
     }
 
-    /// Add an output arc (Transition → Place).
     pub fn add_output_arc(
-        mut self,
-        transition_id: impl Into<String>,
-        place_id: impl Into<String>,
-        weight: u32,
+        &mut self,
+        transition: TransitionId,
+        place: PlaceId,
+        weight: Weight,
         update: Option<VarUpdate>,
-    ) -> Self {
-        self.output_arcs.push(OutputArcData {
-            transition: TransitionId::new(transition_id),
-            place: PlaceId::new(place_id),
-            weight,
-            update,
-        });
+    ) -> &mut Self {
+        self.post.add(transition, place, weight);
+        if let Some(u) = update {
+            self.post_updates.insert((transition, place), u);
+        }
         self
     }
 
-    /// Set initial token count for a place.
-    pub fn set_initial_tokens(mut self, place_id: impl Into<String>, count: u32) -> Self {
-        self.initial_tokens.insert(place_id.into(), count);
+    // ── 属性 ──
+
+    pub fn set_capacity(&mut self, place: PlaceId, capacity: Weight) -> &mut Self {
+        if let Some(p) = self.places.get_mut(place.index()) {
+            p.capacity = Some(capacity);
+        }
         self
     }
 
-    /// Add a variable with its initial value.
-    pub fn add_variable(mut self, name: impl Into<String>, initial_value: Val) -> Self {
-        self.initial_vars.insert(name.into(), initial_value);
+    pub fn set_anchor(&mut self, transition: TransitionId, anchor: impl Into<String>) -> &mut Self {
+        if let Some(t) = self.transitions.get_mut(transition.index()) {
+            t.anchors.push(anchor.into());
+        }
         self
     }
 
-    /// Construct the graph and apply return flags; shared by both build methods.
-    fn build_net(mut self) -> (CvnNet, Vec<InputArcData>, Vec<OutputArcData>) {
-        for pid in &self.return_places {
-            if let Some(place) = self.places.get_mut(pid) {
-                place.is_return = true;
-            }
+    pub fn set_family(&mut self, transition: TransitionId, family: impl Into<String>) -> &mut Self {
+        if let Some(t) = self.transitions.get_mut(transition.index()) {
+            t.family = Some(family.into());
         }
+        self
+    }
 
-        let mut graph = DiGraph::<NetNode, NetEdge>::new();
-        let mut place_index = FxHashMap::default();
-        let mut transition_index = FxHashMap::default();
+    // ── 初始状态 ──
 
-        for (_, place) in &self.places {
-            let idx = graph.add_node(NetNode::Place(place.clone()));
-            place_index.insert(place.id.clone(), idx);
+    pub fn set_initial_tokens(&mut self, place: PlaceId, count: u32) -> &mut Self {
+        if let Some(c) = self.initial_marking.get_mut(place.index()) {
+            *c = count;
         }
+        self
+    }
 
-        for (_, transition) in &self.transitions {
-            let idx = graph.add_node(NetNode::Transition(transition.clone()));
-            transition_index.insert(transition.id.clone(), idx);
-        }
+    pub fn add_variable(&mut self, name: impl Into<String>, initial: Val) -> &mut Self {
+        let vars = self.initial_vars.get_or_insert_with(IndexMap::new);
+        vars.insert(name.into(), initial);
+        self
+    }
 
-        for arc in &self.input_arcs {
-            if let (Some(&p_idx), Some(&t_idx)) =
-                (place_index.get(&arc.place), transition_index.get(&arc.transition))
-            {
-                graph.add_edge(p_idx, t_idx, NetEdge::Input(arc.clone()));
-            }
-        }
+    pub fn set_variable_domain(&mut self, name: impl Into<String>, lo: i64, hi: i64) -> &mut Self {
+        self.var_domains.insert(name.into(), (lo, hi));
+        self
+    }
 
-        for arc in &self.output_arcs {
-            if let (Some(&t_idx), Some(&p_idx)) =
-                (transition_index.get(&arc.transition), place_index.get(&arc.place))
-            {
-                graph.add_edge(t_idx, p_idx, NetEdge::Output(arc.clone()));
-            }
-        }
-
-        let mut initial_marking = Marking::default();
-        for (pid, count) in &self.initial_tokens {
-            if *count > 0 {
-                initial_marking.insert(PlaceId::new(pid.clone()), *count);
-            }
-        }
-
-        let net = CvnNet::from_parts(
-            graph,
-            place_index,
-            transition_index,
-            initial_marking,
+    pub fn build(self) -> Net {
+        Net::from_parts(
+            self.places,
+            self.transitions,
+            self.pre,
+            self.post,
+            self.pre_guards,
+            self.post_updates,
+            Marking::new(self.initial_marking),
             self.initial_vars,
-        );
-
-        (net, self.input_arcs, self.output_arcs)
-    }
-
-    /// Build the CVN network, performing well-formedness validation.
-    ///
-    /// Returns the constructed [`CvnNet`] on success, or a list of validation
-    /// errors on failure.
-    pub fn build(self) -> Result<CvnNet, Vec<CvnError>> {
-        let (net, input_arcs, output_arcs) = self.build_net();
-        let errors = validate::validate(&net, &input_arcs, &output_arcs);
-        if errors.is_empty() {
-            Ok(net)
-        } else {
-            Err(errors)
-        }
-    }
-
-    /// Build the CVN network with additional anchor completeness validation (W7).
-    ///
-    /// Like [`build()`](Self::build), but additionally checks that every transition
-    /// has at least one CIR statement ID anchor (V105).
-    #[cfg(feature = "cir-anchor")]
-    pub fn build_with_anchor_check(self) -> Result<CvnNet, Vec<CvnError>> {
-        let (net, input_arcs, output_arcs) = self.build_net();
-        let mut errors = validate::validate(&net, &input_arcs, &output_arcs);
-        errors.extend(validate::check_anchor_sids(&net));
-        if errors.is_empty() {
-            Ok(net)
-        } else {
-            Err(errors)
-        }
+            self.var_domains,
+        )
     }
 }

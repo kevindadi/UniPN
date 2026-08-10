@@ -1,42 +1,26 @@
-//! Deadlock detection for CVN states.
+//! 死锁判定：无可使能变迁，且至少一个线程未到线程终点位。
 
-use crate::model::{PlaceId, State};
-use crate::net::CvnNet;
+use crate::netlike::NetLike;
+use crate::state::State;
 
-/// Check if a state is terminal (all control tokens are in return places).
-pub fn is_terminal(net: &CvnNet, state: &State) -> bool {
-    for (place_id, &count) in &state.marking {
-        if count == 0 {
-            continue;
-        }
-        if let Some(place) = net.place(place_id) {
-            if place.is_control_flow() && !place.is_return {
-                return false;
-            }
-        }
-    }
-    true
-}
-
-/// Check if a state is a deadlock.
+/// 判断一个"无可使能变迁"的状态是否为死锁。
 ///
-/// A state is a deadlock iff it is not terminal and no transitions are enabled.
-pub fn is_deadlock(net: &CvnNet, state: &State) -> bool {
-    !is_terminal(net, state) && net.enabled_transitions(state).is_empty()
-}
-
-/// Find all place IDs that have tokens and represent blocked control flow.
-///
-/// Useful for diagnosing deadlocks.
-pub fn blocked_places(net: &CvnNet, state: &State) -> Vec<PlaceId> {
+/// 资源位 token（Mutex/RwLock/Semaphore/Channel）不属于控制流；若所有
+/// 控制流 token 都位于 [`NetLike::is_thread_terminal`] 位，线程已全部完成，
+/// 不算死锁。
+pub fn is_deadlock(net: &dyn NetLike, state: &State) -> bool {
     state
         .marking
-        .iter()
-        .filter(|(_, count)| **count > 0)
-        .filter_map(|(pid, _)| {
-            net.place(pid)
-                .filter(|p| p.is_control_flow() && !p.is_return)
-                .map(|_| pid.clone())
-        })
+        .iter_nonzero()
+        .any(|(p, _)| !net.is_resource(p) && !net.is_thread_terminal(p))
+}
+
+/// 死锁状态下被阻塞的库位集合（诊断用）。
+pub fn blocked_places(net: &dyn NetLike, state: &State) -> Vec<crate::ids::PlaceId> {
+    state
+        .marking
+        .iter_nonzero()
+        .filter(|(p, _)| !net.is_resource(*p) && !net.is_thread_terminal(*p))
+        .map(|(p, _)| p)
         .collect()
 }
