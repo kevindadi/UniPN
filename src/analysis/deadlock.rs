@@ -1,13 +1,14 @@
-//! 死锁判定：无可使能变迁，且至少一个线程未到线程终点位。
+//! Deadlock detection: no enabled transition, and at least one thread is not at
+//! a thread-terminal place.
 
 use crate::netlike::NetLike;
 use crate::state::State;
 
-/// 判断一个"无可使能变迁"的状态是否为死锁。
+/// Decide whether a state with no enabled transitions is a deadlock.
 ///
-/// 资源位 token（Mutex/RwLock/Semaphore/Channel）不属于控制流；若所有
-/// 控制流 token 都位于 [`NetLike::is_thread_terminal`] 位，线程已全部完成，
-/// 不算死锁。
+/// Resource tokens (Mutex/RwLock/Semaphore/Channel) are not control flow; if
+/// every control-flow token sits on a [`NetLike::is_thread_terminal`] place,
+/// all threads have finished and it is not a deadlock.
 pub fn is_deadlock(net: &dyn NetLike, state: &State) -> bool {
     state
         .marking
@@ -15,7 +16,8 @@ pub fn is_deadlock(net: &dyn NetLike, state: &State) -> bool {
         .any(|(p, _)| !net.is_resource(p) && !net.is_thread_terminal(p))
 }
 
-/// 死锁状态下被阻塞的库位集合（诊断用）。
+/// The set of blocked (control-flow, non-terminal) places in a deadlock state
+/// (for diagnostics).
 pub fn blocked_places(net: &dyn NetLike, state: &State) -> Vec<crate::ids::PlaceId> {
     state
         .marking

@@ -8,10 +8,10 @@ repository = "https://github.com/kevindadi/UniPN"
 
 [features]
 default = ["invariants"]
-# 预留：时间/优先级扩展（Transition.timing/.priority、AnalysisMode::Timed、
-# 对接 PTPN 的状态类 DBM 分析桥）。
+# Reserved: time/priority extension (Transition.timing/.priority,
+# AnalysisMode::Timed, bridge to PTPN state-class DBM analysis).
 timed = []
-# 库位/变迁不变量计算（Gaussian nullspace，BigInt 精确）。
+# Place/transition invariant computation (Gaussian nullspace, exact BigInt).
 invariants = [
     "dep:num-bigint",
     "dep:num-rational",

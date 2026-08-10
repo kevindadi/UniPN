@@ -1,9 +1,11 @@
-//! `NetLike`：统一网契约（object-safe）。
+//! `NetLike`: the unified net contract (object-safe).
 //!
-//! 任何网（CVN、ConcBugDect MIR→PN、测试/时间网）实现该 trait 即可被
-//! [`crate::analysis`] 的共享算法消费。**纯 P/T 网**只需填结构谓词
-//! （`pre_arcs`/`post_arcs`/`initial_state`/`num_*`），`enabled_transitions` 与
-//! `fire` 直接用默认实现；带 guard/update/容量/时间的前端自行覆盖。
+//! Any net (CVN, ConcBugDect MIR→PN, test/timed nets) that implements this
+//! trait is consumed by the shared algorithms in [`crate::analysis`]. A **pure
+//! P/T net** only fills the structural predicates
+//! (`pre_arcs`/`post_arcs`/`initial_state`/`num_*`); `enabled_transitions` and
+//! `fire` use the default implementations. Frontends with guards/updates/
+//! capacities/timing override them as needed.
 
 use thiserror::Error;
 
@@ -11,7 +13,7 @@ use crate::ids::{PlaceId, TransitionId, Weight};
 use crate::model::{ControlSub, PlaceKind, TransitionKind};
 use crate::state::State;
 
-/// 触发错误。
+/// Firing error.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum FireError {
     #[error("transition {0} is out of bounds")]
@@ -26,9 +28,9 @@ pub enum FireError {
     },
 }
 
-/// 统一网契约。
+/// The unified net contract.
 pub trait NetLike {
-    // ── 结构 ──
+    // ── Structure ──
 
     fn num_places(&self) -> usize;
     fn num_transitions(&self) -> usize;
@@ -57,25 +59,26 @@ pub trait NetLike {
         None
     }
 
-    /// 回映锚点（ConcIR sid / 源码行号），默认空。
+    /// Anchoring back to the source (ConcIR sid / source line); empty by default.
     fn transition_anchors(&self, _t: TransitionId) -> Vec<String> {
         Vec::new()
     }
 
-    /// disjunctive OR 族，默认无。
+    /// Disjunctive OR family; none by default.
     fn transition_family(&self, _t: TransitionId) -> Option<&str> {
         None
     }
 
-    /// 变迁 t 的 preset：`(place, weight)`。
+    /// The preset of transition `t`: `(place, weight)`.
     fn pre_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)>;
 
-    /// 变迁 t 的 postset：`(place, weight)`。
+    /// The postset of transition `t`: `(place, weight)`.
     fn post_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)>;
 
-    // ── 语义谓词（前端提供，common 层默认按标注推断）──
+    // ── Semantic predicates (supplied by the frontend; common defaults infer
+    //    from annotations) ──
 
-    /// 该库位是否为线程作用域终点（死锁判定用）。
+    /// Whether this place is a thread-scope terminal (used for deadlock checks).
     fn is_thread_terminal(&self, p: PlaceId) -> bool {
         matches!(
             self.place_kind(p),
@@ -83,21 +86,22 @@ pub trait NetLike {
         )
     }
 
-    /// 该库位是否为 condvar 等待点（signal-loss 分类用）。
+    /// Whether this place is a condvar wait point (signal-loss classification).
     fn is_wait_point(&self, p: PlaceId) -> bool {
         matches!(self.place_kind(p), Some(PlaceKind::Control(ControlSub::WaitPoint)))
     }
 
-    /// 该库位是否为资源位。
+    /// Whether this place is a resource place.
     fn is_resource(&self, p: PlaceId) -> bool {
         matches!(self.place_kind(p), Some(PlaceKind::Resource(_)))
     }
 
-    // ── 运行时 ──
+    // ── Runtime ──
 
     fn initial_state(&self) -> State;
 
-    /// 给定状态下的使能变迁集合。默认实现为纯 P/T 语义。
+    /// The set of enabled transitions in a given state. The default
+    /// implementation is the pure P/T semantics.
     fn enabled_transitions(&self, s: &State) -> Vec<TransitionId> {
         let mut out = Vec::new();
         for t in self.transition_ids() {
@@ -115,7 +119,8 @@ pub trait NetLike {
         out
     }
 
-    /// 触发变迁。默认实现为纯 P/T 语义（消费 preset、产出 postset）。
+    /// Fire a transition. The default implementation is the pure P/T semantics
+    /// (consumes the preset, produces the postset).
     fn fire(&self, t: TransitionId, s: &State) -> Result<State, FireError> {
         if t.index() >= self.num_transitions() {
             return Err(FireError::OutOfBounds(t));
@@ -147,7 +152,8 @@ pub trait NetLike {
     }
 }
 
-/// 资源类型的容量（Mutex=1、RwLock=max_readers、Semaphore=count；其余无界）。
+/// Capacity of a resource type (Mutex=1, RwLock=max_readers, Semaphore=count;
+/// the rest are unbounded).
 fn capacity_of(ty: &crate::model::ResourceType) -> Option<u32> {
     match ty {
         crate::model::ResourceType::Mutex => Some(1),

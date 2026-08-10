@@ -1,4 +1,4 @@
-//! 行为死迁移检测。
+//! Behavioral dead-transition detection.
 
 use rustc_hash::FxHashSet;
 
@@ -7,11 +7,14 @@ use crate::netlike::NetLike;
 
 use super::{Counterexample, PropertyViolation, ReachabilityGraph};
 
-/// 找出行为上永不触发的变迁（或整族死迁移）。
+/// Find transitions that never fire behaviorally (or whole families that are
+/// dead).
 ///
-/// 在可达图的所有边上出现过的变迁视为存活；未出现的变迁若属于某个
-/// disjunctive OR 族且该族有成员存活，则跳过（族语义 = 至多一个成员触发）。
-/// 整族死亡时只报告一个代表（字典序最小变迁 id）。
+/// Transitions appearing on any edge of the reachability graph are live; a
+/// transition that never fires but belongs to a disjunctive OR family with at
+/// least one live member is skipped (family semantics = at most one member
+/// fires). A wholly-dead family is reported once (representative = smallest
+/// transition id).
 pub fn find_dead_transitions(net: &dyn NetLike, rg: &ReachabilityGraph) -> Vec<Counterexample> {
     let fired = rg.fired_transitions();
 
@@ -58,8 +61,10 @@ pub fn find_dead_transitions(net: &dyn NetLike, rg: &ReachabilityGraph) -> Vec<C
     dead
 }
 
-/// 抑制被死锁支配的死迁移：某迁移的输入位位于某死锁状态的阻塞控制流下游，
-/// 它"不死"，只是死锁提前截断了探索。用于避免对同一死锁的重复诊断。
+/// Suppress dead transitions dominated by a deadlock: a transition whose input
+/// place lies downstream of a deadlock's blocked control flow is not truly
+/// dead, the deadlock merely truncated the exploration. Used to avoid duplicate
+/// diagnoses of the same deadlock.
 #[allow(dead_code)]
 pub(crate) fn deadlock_dominated(
     net: &dyn NetLike,

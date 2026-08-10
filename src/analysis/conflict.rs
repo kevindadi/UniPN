@@ -1,4 +1,5 @@
-//! 冲突集：共享输入库位的变迁对。测试生成用它挑选要加压的竞争点。
+//! Conflict sets: transition pairs sharing an input place. Test-case generation
+//! uses them to select contention points to stress.
 
 use rustc_hash::FxHashMap;
 use std::collections::BTreeSet;
@@ -6,9 +7,10 @@ use std::collections::BTreeSet;
 use crate::ids::{PlaceId, TransitionId};
 use crate::netlike::NetLike;
 
-/// 共享同一输入库位的变迁对（潜在竞争/冲突）。
+/// Transition pairs sharing the same input place (potential races/conflicts).
 ///
-/// 返回升序 `(t1, t2), t1 < t2`，且两变迁在某个库位上都消耗 token。
+/// Returns ascending `(t1, t2), t1 < t2`, where both transitions consume tokens
+/// from some place.
 pub fn conflict_sets(net: &dyn NetLike) -> Vec<(TransitionId, TransitionId)> {
     let mut by_place: FxHashMap<PlaceId, Vec<TransitionId>> = FxHashMap::default();
     for t in net.transition_ids() {

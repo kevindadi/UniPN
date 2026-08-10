@@ -1,7 +1,7 @@
-//! 状态空间探索：BFS / DFS / 偏序归约（sleep-set）。
+//! State-space exploration: BFS / DFS / partial-order reduction (sleep-set).
 //!
-//! 使用独立存储的可达图（无 petgraph 依赖）：
-//! `states: Vec<State>` + `edges: Vec<(src, dst, transition)>`。
+//! Uses a standalone reachability-graph storage (no petgraph dependency):
+//! `states: Vec<State>` + `edges: Vec<(src, dst, transition)>`.
 
 use std::collections::VecDeque;
 use std::collections::hash_map::Entry;
@@ -14,7 +14,7 @@ use crate::state::State;
 
 use super::{AnalysisConfig, Counterexample, FiringStep, PropertyViolation, SearchStrategy};
 
-/// 可达图。
+/// Reachability graph.
 #[derive(Clone, Debug)]
 pub struct ReachabilityGraph {
     pub states: Vec<State>,
@@ -33,13 +33,14 @@ impl ReachabilityGraph {
         self.edges.len()
     }
 
-    /// 可达图中出现过的变迁集合（死迁移判定用）。
+    /// The set of transitions that fired on any edge of the graph (used for
+    /// dead-transition detection).
     pub fn fired_transitions(&self) -> FxHashSet<TransitionId> {
         self.edges.iter().map(|(_, _, t)| *t).collect()
     }
 }
 
-/// 探索整个可达状态空间。
+/// Explore the whole reachable state space.
 pub fn explore(net: &dyn NetLike, config: &AnalysisConfig) -> ReachabilityGraph {
     if config.por {
         return explore_por(net, config.max_states);
@@ -109,7 +110,7 @@ fn explore_dfs(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
     e.finish()
 }
 
-// ── POR（sleep-set）──
+// ── POR (sleep-set) ──
 
 fn explore_por(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
     let mut e = Explorer::new(net, max_states);
@@ -143,7 +144,9 @@ fn explore_por(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
             let enabled_next: FxHashSet<TransitionId> =
                 net.enabled_transitions(&next).into_iter().collect();
 
-            // 与 t 独立的使能变迁加入 sleep：其交错可交换，只展开一个代表序。
+            // Add enabled transitions independent of `t` to the sleep set:
+            // their interleavings commute, so only one representative order is
+            // expanded.
             let mut new_sleep = sleep.clone();
             for &tt in &enabled {
                 if tt != t && transitions_are_independent(net, t, tt) {
@@ -158,11 +161,12 @@ fn explore_por(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
             e.record_edge(idx, target, t);
 
             if is_new {
-                // 新状态：必须以本次 sleep 入队展开。
+                // New state: enqueue with the current sleep set.
                 sleep_sets.insert(target, new_sleep.clone());
                 queue.push_back((target, new_sleep));
             } else {
-                // 同一标记以不同 sleep 到达时按交集合并，保证 deadlock 不丢。
+                // Same marking reached with a different sleep set: merge by
+                // intersection so no deadlock is lost.
                 let old_sleep = sleep_sets.get(&target).cloned().unwrap_or_default();
                 let merged: FxHashSet<TransitionId> =
                     old_sleep.intersection(&new_sleep).copied().collect();
@@ -176,7 +180,8 @@ fn explore_por(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
     e.finish()
 }
 
-/// 两变迁是否独立：不共享任何库位（pre/post 均不共享）。独立变迁交错可交换。
+/// Whether two transitions are independent: they share no place (neither in
+/// their pre nor post). Independent transitions commute.
 fn transitions_are_independent(net: &dyn NetLike, t1: TransitionId, t2: TransitionId) -> bool {
     if t1 == t2 {
         return false;
@@ -193,7 +198,7 @@ fn transitions_are_independent(net: &dyn NetLike, t1: TransitionId, t2: Transiti
     true
 }
 
-// ── 共享探索器 ──
+// ── Shared explorer ──
 
 struct Explorer<'a> {
     net: &'a dyn NetLike,

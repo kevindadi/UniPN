@@ -1,10 +1,13 @@
-//! 库位/变迁不变量（feature `invariants`）。
+//! Place/transition invariants (feature `invariants`).
 //!
-//! 基于效果矩阵 `C = Post − Pre` 的零空间计算（Gaussian elimination，
-//! BigRational 精确 + 整数规范化）。移植自 ConcBugDect 的 proven 实现。
+//! Based on the nullspace of the effect matrix `C = Post − Pre` (Gaussian
+//! elimination, exact with BigRational + integer normalization). Ported from
+//! ConcBugDect's proven implementation.
 //!
-//! - 库位不变量：`y·C = 0`（守恒量，如"互斥锁 token + 持有者 = 常量"）。
-//! - 变迁不变量：`C·x = 0`（T-不变量，如循环净效果为零）。
+//! - Place invariants: `y·C = 0` (conservation laws, e.g. "mutex tokens +
+//!   holder = constant").
+//! - Transition invariants: `C·x = 0` (T-invariants, e.g. a loop with zero net
+//!   effect).
 #![allow(clippy::needless_range_loop, clippy::collapsible_if)]
 
 use num_bigint::BigInt;
@@ -16,13 +19,13 @@ use crate::net::Net;
 use crate::netlike::NetLike;
 use crate::storage::effect_matrix;
 
-/// 库位不变量（行向量，长度 = |P|）。
+/// Place invariants (row vectors, length = |P|).
 pub fn place_invariants(net: &Net) -> Vec<Vec<BigInt>> {
     let c = effect_matrix(net.pre(), net.post(), net.num_places());
     let places = net.num_places();
     let transitions = net.num_transitions();
 
-    // 转置：行 = transition，列 = place。
+    // Transpose: row = transition, column = place.
     let mut transposed = vec![vec![BigInt::from(0); places]; transitions];
     for (place, row) in c.iter().enumerate() {
         for (t, v) in row.iter().enumerate() {
@@ -32,7 +35,7 @@ pub fn place_invariants(net: &Net) -> Vec<Vec<BigInt>> {
     compute_nullspace(&transposed, places)
 }
 
-/// 变迁不变量（列向量，长度 = |T|）。
+/// Transition invariants (column vectors, length = |T|).
 pub fn transition_invariants(net: &Net) -> Vec<Vec<BigInt>> {
     let c = effect_matrix(net.pre(), net.post(), net.num_places());
     let rows: Vec<Vec<BigInt>> = c

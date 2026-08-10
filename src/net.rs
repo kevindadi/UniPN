@@ -1,4 +1,5 @@
-//! 矩阵底层 `Net`：CSC incidence + 可选 guard/update/容量/变量域。
+//! Matrix-backed `Net`: CSC incidence + optional guards/updates/capacities/
+//! variable domains.
 
 use rustc_hash::FxHashMap;
 
@@ -9,20 +10,21 @@ use crate::netlike::{FireError, NetLike};
 use crate::state::{Marking, State, VarStore};
 use crate::storage::Incidence;
 
-/// 统一的矩阵存储网。
+/// The unified matrix-backed net.
 #[derive(Clone, Debug)]
 pub struct Net {
     places: Vec<Place>,
     transitions: Vec<Transition>,
     pre: Incidence,
     post: Incidence,
-    /// 输入弧守卫（稀疏，仅带数据网才有）。
+    /// Input-arc guards (sparse; only data-modeling nets use them).
     pre_guards: FxHashMap<(TransitionId, PlaceId), BoolExpr>,
-    /// 输出弧变量更新（稀疏）。
+    /// Output-arc variable updates (sparse).
     post_updates: FxHashMap<(TransitionId, PlaceId), VarUpdate>,
     initial_marking: Marking,
     initial_vars: Option<VarStore>,
-    /// 有界 Int 域：更新越界禁用变迁（可判定性）。
+    /// Bounded Int domains: an update leaving the domain disables the
+    /// transition (decidability).
     var_domains: FxHashMap<String, (i64, i64)>,
 }
 
@@ -202,7 +204,7 @@ impl NetLike for Net {
             next.marking.set(pid, after);
         }
 
-        // 变量更新：对原状态求值后写入新状态。
+        // Variable updates: evaluate against the original state, then write.
         let mut applied = false;
         let mut store = next.vars.clone().unwrap_or_default();
         for (&(tt, _), update) in &self.post_updates {
@@ -247,7 +249,8 @@ impl Net {
                 }
             }
         }
-        // 有界 Int 域：更新越界则禁用。
+        // Bounded Int domains: an update leaving the domain disables the
+        // transition.
         for (&(tt, _), update) in &self.post_updates {
             if tt != t {
                 continue;

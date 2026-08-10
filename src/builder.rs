@@ -1,4 +1,4 @@
-//! 链式构建器：`NetBuilder`。
+//! Chain-style builder: `NetBuilder`.
 
 use indexmap::IndexMap;
 use rustc_hash::FxHashMap;
@@ -10,7 +10,7 @@ use crate::net::Net;
 use crate::state::{Marking, VarStore};
 use crate::storage::Incidence;
 
-/// 统一构建器。
+/// The unified builder.
 #[derive(Default)]
 pub struct NetBuilder {
     places: Vec<Place>,
@@ -33,7 +33,7 @@ impl NetBuilder {
         }
     }
 
-    // ── 节点 ──
+    // ── Nodes ──
 
     pub fn add_place(&mut self, name: impl Into<String>, kind: PlaceKind) -> PlaceId {
         let id = PlaceId(self.places.len());
@@ -65,7 +65,7 @@ impl NetBuilder {
         id
     }
 
-    // ── 弧 ──
+    // ── Arcs ──
 
     pub fn add_input_arc(
         &mut self,
@@ -95,7 +95,7 @@ impl NetBuilder {
         self
     }
 
-    // ── 属性 ──
+    // ── Attributes ──
 
     pub fn set_capacity(&mut self, place: PlaceId, capacity: Weight) -> &mut Self {
         if let Some(p) = self.places.get_mut(place.index()) {
@@ -118,7 +118,7 @@ impl NetBuilder {
         self
     }
 
-    // ── 初始状态 ──
+    // ── Initial state ──
 
     pub fn set_initial_tokens(&mut self, place: PlaceId, count: u32) -> &mut Self {
         if let Some(c) = self.initial_marking.get_mut(place.index()) {
@@ -133,6 +133,8 @@ impl NetBuilder {
         self
     }
 
+    /// Declare a bounded Int domain (an update leaving the domain disables the
+    /// transition, keeping the state space finite).
     pub fn set_variable_domain(&mut self, name: impl Into<String>, lo: i64, hi: i64) -> &mut Self {
         self.var_domains.insert(name.into(), (lo, hi));
         self

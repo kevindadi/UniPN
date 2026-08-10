@@ -1,30 +1,36 @@
-//! 时间扩展预留位（feature `timed`）。
+//! Reserved time extension (feature `timed`).
 //!
-//! 目标：对接 [PTPN](https://github.com/kevindadi/PTPN) 的优先级时间 Petri 网，
-//! 用状态类（state-class）DBM 可达分析验证时间相关属性（WCET、可调度性、
-//! deadline、实时互斥）。
+//! Goal: bridge to [PTPN](https://github.com/kevindadi/PTPN)'s priority timed
+//! Petri nets, using state-class (DBM) reachability analysis to verify
+//! time-related properties (WCET, schedulability, deadlines, real-time mutual
+//! exclusion).
 //!
-//! 集成路径：与 PTPN 自身导出 Romeo `.cts` / PToPNer `.ppn` 一致 —— 统一网
-//! 通过导出桥变为 PTPN 的 `.ptpn` / TDG JSON，由 PTPN 做状态类分析后回传
-//! （DBM 区域、调度状态）。IR 层面只加可选标注，不动核心 firing 语义。
+//! Integration path: consistent with PTPN's own Romeo `.cts` / PToPNer `.ppn`
+//! exports — the unified net is exported (via an export bridge) as PTPN's
+//! `.ptpn` / TDG JSON, PTPN runs the state-class analysis, and the results
+//! (DBM zones, scheduling states) come back. On the IR side only optional
+//! annotations are added; the core firing semantics is untouched.
 
 use serde::{Deserialize, Serialize};
 
-/// 静态时间区间 `[dmin, dmax]`（T-timed：变迁使能后须等待区间内某一时刻）。
+/// Static time interval `[dmin, dmax]` (T-timed: a transition may only fire at
+/// some instant within the interval after becoming enabled). The unit of `dmin`
+/// is decided by the consumer (e.g. 1 = one time unit).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StaticInterval {
     pub dmin: u64,
     pub dmax: u64,
 }
 
-/// 固定优先级（值越大优先级越高；抢占/调度用）。
+/// Fixed priority (higher value = higher priority; for preemption/scheduling).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Priority(pub u32);
 
-/// 时钟类：把若干库位/变迁归入同一时钟（状态类分析中的时钟变量）。
+/// Clock class: groups several places/transitions under one clock (a clock
+/// variable in state-class analysis).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ClockClass {
     pub name: String,
-    /// 归属该时钟的库位/变迁 id 前缀。
+    /// Id prefixes of the places/transitions belonging to this clock.
     pub members: Vec<String>,
 }

@@ -1,4 +1,5 @@
-//! 冲突集（测试生成选竞争点的依据）。
+//! Conflict sets (the basis for selecting contention points in test
+//! generation).
 
 use unipn::analysis::conflict_sets;
 use unipn::expr::BoolExpr;

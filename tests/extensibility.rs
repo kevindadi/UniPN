@@ -1,11 +1,13 @@
-//! 可扩展性：一个"外来网"（独立数据格式）实现 `NetLike` 后即被共享算法消费。
+//! Extensibility: a "foreign net" (independent data format) implementing
+//! `NetLike` is immediately consumed by the shared algorithms.
 
 use unipn::analysis::{AnalysisConfig, PropertyViolation, explore};
 use unipn::model::{ControlSub, PlaceKind, TransitionKind};
 use unipn::netlike::{FireError, NetLike};
 use unipn::{PlaceId, State, TransitionId, Weight};
 
-/// 一个最小、自成一体的网：完全不同的内部表示（Vec of (name, kind)）。
+/// A minimal, self-contained net: a completely different internal
+/// representation (Vec of (name, kind)).
 struct ForeignNet {
     places: Vec<(String, PlaceKind)>,
     transitions: Vec<(String, TransitionKind)>,
@@ -48,10 +50,11 @@ impl NetLike for ForeignNet {
     fn initial_state(&self) -> State {
         State::new(unipn::Marking(self.initial.clone()), None)
     }
-    // enabled/fire 用 trait 默认实现（纯 P/T）。
+    // enabled/fire use the trait default implementations (pure P/T).
 }
 
-/// 资源阻塞死锁：线程在 p0 等互斥锁 token，但锁初始为空。
+/// Resource-blocked deadlock: the thread at p0 waits for the mutex token,
+/// but the lock is empty initially.
 fn resource_blocked_deadlock() -> ForeignNet {
     ForeignNet {
         places: vec![
@@ -62,26 +65,28 @@ fn resource_blocked_deadlock() -> ForeignNet {
         transitions: vec![("t1_lock".into(), TransitionKind::Lock)],
         pre: vec![vec![(0, 1), (2, 1)]], // p0 + mtx
         post: vec![vec![(1, 1)]],        // → p1
-        initial: vec![1, 0, 0],          // p0=1, mtx=0（锁被外部占用）
+        initial: vec![1, 0, 0],          // p0=1, mtx=0 (lock held elsewhere)
     }
 }
 
 #[test]
 fn foreign_net_is_consumed_by_shared_explore() {
     let net = resource_blocked_deadlock();
-    // 共享算法直接可用 —— 无需把 ForeignNet 转成任何统一结构。
+    // The shared algorithm works directly — no need to convert ForeignNet
+    // into any unified structure.
     let rg = explore(&net, &AnalysisConfig::default());
 
     assert!(!rg.deadlocks.is_empty(), "expect deadlock");
     assert!(matches!(rg.deadlocks[0].kind, PropertyViolation::Deadlock));
     assert!(rg.deadlocks[0].trace.is_empty(), "no steps possible");
 
-    // 语义谓词由前端提供：资源位不是线程终点。
+    // Semantic predicates are frontend-supplied: a resource place is not a
+    // thread terminal.
     assert!(net.is_resource(PlaceId(2)));
     assert!(!net.is_thread_terminal(PlaceId(0)));
     assert!(net.is_thread_terminal(PlaceId(1)));
 
-    // fire 默认语义可用。
+    // The default fire semantics works.
     let e = net.enabled_transitions(&net.initial_state());
     assert!(e.is_empty());
     assert_eq!(

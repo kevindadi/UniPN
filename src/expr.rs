@@ -1,7 +1,7 @@
-//! 值、表达式与守卫（可选数据模型）。
+//! Values, expressions and guards (the optional data model).
 //!
-//! 纯 P/T 网不建模数据（`State::vars = None`）；带数据的前端（ConcIR→CVN）用它
-//! 表达输入弧 guard 与输出弧 update。
+//! A pure P/T net does not model data (`State::vars = None`); frontends that do
+//! (ConcIR→CVN) use this module for input-arc guards and output-arc updates.
 
 use indexmap::IndexMap;
 use std::fmt;
@@ -9,7 +9,7 @@ use std::fmt;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-/// 一个完全已知的具体值。
+/// A fully-known concrete value.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConcreteVal {
     Bool(bool),
@@ -46,7 +46,7 @@ impl fmt::Display for ConcreteVal {
     }
 }
 
-/// 变量库中的值。`Unknown`(⊤) 是吸收元。
+/// A value in the variable store. `Unknown`(⊤) is the absorbing element.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Val {
     Concrete(ConcreteVal),
@@ -80,7 +80,7 @@ impl fmt::Display for Val {
     }
 }
 
-/// 二元算术运算符。
+/// Binary arithmetic operator.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Op {
     Add,
@@ -90,7 +90,7 @@ pub enum Op {
     Mod,
 }
 
-/// 比较运算符。
+/// Comparison operator.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CmpOp {
     Eq,
@@ -101,7 +101,7 @@ pub enum CmpOp {
     Ge,
 }
 
-/// 值表达式。
+/// Value expression.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Expr {
     Lit(Val),
@@ -113,7 +113,7 @@ pub enum Expr {
     },
 }
 
-/// 布尔守卫（三值求值）。
+/// Boolean guard (three-valued evaluation).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BoolExpr {
     True,
@@ -127,10 +127,11 @@ pub enum BoolExpr {
     Not(Box<BoolExpr>),
 }
 
-/// 变量更新表。
+/// Variable update map.
 pub type VarUpdate = IndexMap<String, Expr>;
 
-/// 三值守卫结果。`Unknown` 按满足处理（over-approximation）。
+/// Three-valued guard result. `Unknown` is treated as satisfied
+/// (over-approximation).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GuardResult {
     True,
@@ -144,7 +145,7 @@ impl GuardResult {
     }
 }
 
-/// 对变量库求值值表达式。
+/// Evaluate a value expression against the variable store.
 pub fn eval_expr(expr: &Expr, vars: &IndexMap<String, Val>) -> Val {
     match expr {
         Expr::Lit(v) => v.clone(),
@@ -200,7 +201,7 @@ fn eval_concrete_binop(op: &Op, lhs: &ConcreteVal, rhs: &ConcreteVal) -> Val {
     }
 }
 
-/// 对变量库求值布尔守卫。
+/// Evaluate a boolean guard against the variable store.
 pub fn eval_guard(guard: &BoolExpr, vars: &IndexMap<String, Val>) -> GuardResult {
     match guard {
         BoolExpr::True => GuardResult::True,
@@ -297,5 +298,5 @@ fn eval_concrete_cmp(op: &CmpOp, lhs: &ConcreteVal, rhs: &ConcreteVal) -> bool {
     }
 }
 
-// 兼容：使 val/expr 可用于 JSON 序列化场景。
+// Compatibility: enables val/expr for JSON-serialization scenarios.
 pub(crate) fn _assert_serde<T: Serialize + DeserializeOwned>() {}

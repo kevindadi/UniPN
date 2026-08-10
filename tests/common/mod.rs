@@ -1,4 +1,4 @@
-//! 公共测试辅助：构建各类网。
+//! Shared test helpers: build various nets.
 
 #![allow(dead_code)]
 
@@ -6,7 +6,7 @@ use unipn::expr::BoolExpr;
 use unipn::model::{ControlSub, PlaceKind, ResourceType, TransitionKind};
 use unipn::{Net, NetBuilder};
 
-/// 简单链：p0 → t0 → p1（p1 为线程终点）。
+/// Simple chain: p0 → t0 → p1 (p1 is the thread terminal).
 pub fn simple_chain() -> Net {
     let mut b = NetBuilder::new();
     let p0 = b.add_place("p0", PlaceKind::Control(ControlSub::Statement));
@@ -18,7 +18,8 @@ pub fn simple_chain() -> Net {
     b.build()
 }
 
-/// 双互斥锁死锁：线程1 拿 A 等 B，线程2 拿 B 等 A。
+/// Two-mutex deadlock: thread 1 holds A and waits for B, thread 2 holds B and
+/// waits for A.
 pub fn mutex_deadlock() -> Net {
     let mut b = NetBuilder::new();
     let a = b.add_place("A", PlaceKind::Resource(ResourceType::Mutex));
@@ -44,7 +45,7 @@ pub fn mutex_deadlock() -> Net {
     b.add_input_arc(b_, t1_lock_b, 1, BoolExpr::True);
     b.add_output_arc(t1_lock_b, t1_done, 1, None);
 
-    // t2: lock B then A（逆序）
+    // t2: lock B then A (reverse order)
     b.add_input_arc(t2_s1, t2_lock_b, 1, BoolExpr::True);
     b.add_input_arc(b_, t2_lock_b, 1, BoolExpr::True);
     b.add_output_arc(t2_lock_b, t2_s2, 1, None);
@@ -59,7 +60,7 @@ pub fn mutex_deadlock() -> Net {
     b.build()
 }
 
-/// 循环：p0 → t0 → p1 → t1 → p0（不变量/边界测试用）。
+/// Cycle: p0 → t0 → p1 → t1 → p0 (for invariant/boundary tests).
 pub fn cycle() -> Net {
     let mut b = NetBuilder::new();
     let p0 = b.add_place("p0", PlaceKind::Control(ControlSub::Statement));

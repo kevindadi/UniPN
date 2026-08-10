@@ -1,4 +1,4 @@
-//! 基础语义：enabled / fire / explore。
+//! Basic semantics: enabled / fire / explore.
 
 mod common;
 

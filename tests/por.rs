@@ -1,6 +1,8 @@
-//! 偏序归约（POR，sleep-set）性质：
-//! - **死锁自由等价**：POR 图有死锁 ⟺ 完整图有死锁（sound & complete）。
-//! - POR 不保留状态数/死锁数，只删冗余交错，故状态数 ≤ 朴素。
+//! Partial-order reduction (POR, sleep-set) properties:
+//! - **Deadlock-freedom equivalence**: the POR graph has a deadlock ⟺ the full
+//!   graph has one (sound & complete).
+//! - POR does not preserve the state/deadlock count; it only drops redundant
+//!   interleavings, so its state count is ≤ the naive one.
 
 mod common;
 
@@ -17,14 +19,14 @@ fn por_deadlock_freedom_is_equivalent() {
             ..Default::default()
         },
     );
-    // 完整图有死锁 ⟺ POR 图有死锁。
+    // Full graph has a deadlock ⟺ POR graph has one.
     assert_eq!(
         plain.deadlocks.is_empty(),
         por.deadlocks.is_empty(),
         "POR must preserve deadlock-freedom"
     );
     assert!(!por.deadlocks.is_empty(), "mutex net does deadlock");
-    // POR 状态数 ≤ 朴素。
+    // POR state count ≤ naive.
     assert!(por.state_count() <= plain.state_count());
 }
 
@@ -72,12 +74,13 @@ fn por_on_independent_transitions_cuts_interleavings() {
             ..Default::default()
         },
     );
-    // 两个独立变迁 2! = 2 条交错，POR 只留 1 条代表序。
+    // Two independent transitions have 2! = 2 interleavings; POR keeps only
+    // the 1 representative order.
     assert!(
         por.edge_count() < plain.edge_count(),
         "POR must drop redundant interleavings"
     );
     assert!(por.state_count() <= plain.state_count());
-    // 无死锁性质不受影响。
+    // Deadlock-freedom is unaffected.
     assert!(plain.deadlocks.is_empty() && por.deadlocks.is_empty());
 }

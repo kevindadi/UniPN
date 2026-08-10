@@ -1,4 +1,4 @@
-//! 库位/变迁不变量（feature `invariants`）。
+//! Place/transition invariants (feature `invariants`).
 
 mod common;
 

@@ -1,4 +1,6 @@
-//! 共享分析引擎。所有算法只依赖 [`NetLike`]，可消费任意前端产出的网。
+//! Shared analysis engines. Every algorithm depends only on
+//! [`NetLike`](crate::netlike::NetLike), so any frontend-produced net can be
+//! consumed.
 
 mod conflict;
 mod dead_transition;
@@ -17,30 +19,32 @@ pub use dead_transition::*;
 pub use deadlock::*;
 pub use explore::*;
 
-/// 分析模式。
+/// Analysis mode.
 ///
-/// `Timed` 是预留模式（feature `timed`）：走状态类（DBM）可达分析，对接
-/// PTPN 的时间/实时调度属性验证。未启用时退化为无时间语义的可达图。
+/// `Timed` is a reserved mode (feature `timed`): it runs state-class (DBM)
+/// reachability analysis, bridging to PTPN for time/real-time-scheduling
+/// properties. When disabled it degrades to the untimed reachability graph.
 #[derive(Clone, Debug)]
 pub enum AnalysisMode {
     Untimed,
     #[cfg(feature = "timed")]
     Timed {
         clock_classes: Vec<crate::timed::ClockClass>,
-        /// 是否启用固定优先级抢占语义。
+        /// Whether to enable fixed-priority preemption semantics.
         priorities: bool,
     },
 }
 
-/// 探索配置。
+/// Exploration configuration.
 #[derive(Clone, Debug)]
 pub struct AnalysisConfig {
     pub mode: AnalysisMode,
     pub strategy: SearchStrategy,
     pub max_states: usize,
-    /// 偏序归约（sleep-set）。
+    /// Partial-order reduction (sleep-set).
     pub por: bool,
-    /// 建图前先做网归约（loop/sequence/intermediate，占位）。
+    /// Run net reduction (loop/sequence/intermediate) before building the
+    /// graph (reserved).
     pub reduce: bool,
 }
 
@@ -56,24 +60,24 @@ impl Default for AnalysisConfig {
     }
 }
 
-/// 探索策略。
+/// Search strategy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum SearchStrategy {
-    /// 广度优先（最短反例）。
+    /// Breadth-first (shortest counterexamples).
     #[default]
     Bfs,
-    /// 深度优先（省内存）。
+    /// Depth-first (lower memory).
     Dfs,
 }
 
-/// 单步触发记录。
+/// A single firing step.
 #[derive(Clone, Debug)]
 pub struct FiringStep {
     pub transition: TransitionId,
     pub anchors: Vec<String>,
 }
 
-/// 违规类型。
+/// Type of property violation.
 #[derive(Clone, Debug)]
 pub enum PropertyViolation {
     Deadlock,
@@ -81,7 +85,7 @@ pub enum PropertyViolation {
     GoalUnmet { goal: String },
 }
 
-/// 反例：触发序列 + 终态 + 违规类型。
+/// A counterexample: firing sequence + final state + violation type.
 #[derive(Clone, Debug)]
 pub struct Counterexample {
     pub kind: PropertyViolation,

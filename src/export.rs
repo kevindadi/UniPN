@@ -1,9 +1,9 @@
-//! 导出：Graphviz DOT。
+//! Export: Graphviz DOT.
 
 use crate::model::{ControlSub, PlaceKind, ResourceType, TransitionKind};
 use crate::netlike::NetLike;
 
-/// 将任意 `NetLike` 网导出为 DOT。
+/// Export any `NetLike` net as DOT.
 pub fn to_dot(net: &dyn NetLike) -> String {
     let mut out = String::new();
     out.push_str("digraph PetriNet {\n");
@@ -31,19 +31,11 @@ pub fn to_dot(net: &dyn NetLike) -> String {
 
     for t in net.transition_ids() {
         for (p, w) in net.pre_arcs(t) {
-            let l = if w == 1 {
-                String::new()
-            } else {
-                format!(" [label=\"{w}\"]")
-            };
+            let l = if w == 1 { String::new() } else { format!(" [label=\"{w}\"]") };
             out.push_str(&format!("    p{} -> t{}{l};\n", p.index(), t.index()));
         }
         for (p, w) in net.post_arcs(t) {
-            let l = if w == 1 {
-                String::new()
-            } else {
-                format!(" [label=\"{w}\"]")
-            };
+            let l = if w == 1 { String::new() } else { format!(" [label=\"{w}\"]") };
             out.push_str(&format!("    t{} -> p{}{l};\n", t.index(), p.index()));
         }
     }
@@ -117,7 +109,5 @@ fn kind_tag(kind: Option<PlaceKind>) -> String {
 }
 
 fn escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
+    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
 }

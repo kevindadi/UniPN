@@ -1,4 +1,4 @@
-//! 行为死迁移检测。
+//! Behavioral dead-transition detection.
 
 use unipn::analysis::{AnalysisConfig, PropertyViolation, explore, find_dead_transitions};
 use unipn::expr::BoolExpr;

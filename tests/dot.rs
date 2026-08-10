@@ -1,4 +1,4 @@
-//! DOT 导出冒烟测试。
+//! DOT-export smoke test.
 
 mod common;
 

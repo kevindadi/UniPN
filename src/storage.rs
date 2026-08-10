@@ -1,15 +1,17 @@
-//! CSC 稀疏列 incidence 存储。
+//! CSC sparse-column incidence storage.
 //!
-//! `Pre/Post ∈ ℕ^{|P|×|T|}` 用**列优先稀疏（CSC）**表示：每个变迁一列，
-//! 只存非零 `(place, weight)`。enabled/fire 热路径复杂度 O(弧数) 而非
-//! O(|P|·|T|)。需要线性代数时（不变量等）才物化稠密 `C = Post − Pre`。
+//! `Pre/Post ∈ ℕ^{|P|×|T|}` is stored column-major sparse (CSC): one column
+//! per transition holding only the non-zero `(place, weight)` entries. The
+//! enabled/fire hot path is O(|arcs|) instead of O(|P|·|T|). The dense
+//! `C = Post − Pre` matrix is only materialized when linear algebra is needed
+//! (e.g. invariants).
 
 use crate::ids::{PlaceId, TransitionId, Weight};
 
-/// 稀疏 incidence 矩阵（列优先）。
+/// Sparse incidence matrix (column-major).
 #[derive(Clone, Debug, Default)]
 pub struct Incidence {
-    /// 每变迁一列：`Vec<(place_index, weight)>`。
+    /// One column per transition: `Vec<(place_index, weight)>`.
     cols: Vec<Vec<(usize, Weight)>>,
 }
 
@@ -24,7 +26,7 @@ impl Incidence {
         self.cols.len()
     }
 
-    /// 添加一条弧（累积权重）。
+    /// Add an arc (accumulates weight).
     pub fn add(&mut self, t: TransitionId, p: PlaceId, weight: Weight) {
         if weight == 0 {
             return;
@@ -36,14 +38,14 @@ impl Incidence {
         }
     }
 
-    /// 变迁 t 的输入/输出列（preset/postset）。
+    /// The column of transition `t` (its preset/postset).
     pub fn column(&self, t: TransitionId) -> &[(usize, Weight)] {
         self.cols
             .get(t.index())
             .map_or(&[], |c| c.as_slice())
     }
 
-    /// 遍历所有非零项 `(transition, place, weight)`。
+    /// Iterate over all non-zero entries `(transition, place, weight)`.
     pub fn iter(&self) -> impl Iterator<Item = (TransitionId, PlaceId, Weight)> + '_ {
         self.cols
             .iter()
@@ -54,7 +56,8 @@ impl Incidence {
             })
     }
 
-    /// 物化稠密矩阵（行 = place，列 = transition，i64 便于差分）。
+    /// Materialize a dense matrix (row = place, column = transition, i64 for
+    /// differencing).
     pub fn dense(&self, places: usize) -> Vec<Vec<i64>> {
         let mut m = vec![vec![0i64; self.cols.len()]; places];
         for (t, p, w) in self.iter() {
@@ -64,7 +67,8 @@ impl Incidence {
     }
 }
 
-/// 效果矩阵 `C = Post − Pre`（稠密，|P|×|T|）。供不变量/结构分析。
+/// Effect matrix `C = Post − Pre` (dense, |P|×|T|). Used for invariants and
+/// structural analysis.
 pub fn effect_matrix(pre: &Incidence, post: &Incidence, places: usize) -> Vec<Vec<i64>> {
     let pre_d = pre.dense(places);
     let post_d = post.dense(places);

@@ -1,43 +1,47 @@
-//! 用 Petri 网指导并发测试用例生成。
+//! Using Petri nets to guide concurrent test-case generation.
 //!
-//! 核心洞察：**可达图的每条路径就是一个线程交错 schedule**，测试用例 =
-//! 路径（schedule）+ 各步的数据约束（变量库）。本模块是可达图之上的纯
-//! consumer，只读 [`crate::netlike::NetLike`]。
+//! Core insight: **every path of the reachability graph is a thread-interleaving
+//! schedule**; a test case = path (schedule) + the data constraints along the way
+//! (variable store). This module is a pure consumer above the reachability
+//! graph and only reads [`crate::netlike::NetLike`].
 
 use crate::analysis::{FiringStep, ReachabilityGraph};
 use crate::state::{State, VarStore};
 
-/// 覆盖准则。
+/// Coverage criteria.
 #[derive(Clone, Debug, Default)]
 pub enum CoverageCriteria {
-    /// 路径覆盖：每条可执行路径一个用例（贪心去重）。
+    /// Path coverage: one test case per executable path (greedy dedup).
     #[default]
     Path,
-    /// 冲突对覆盖：为每个共享输入库位的变迁对生成一个"交错对"用例。
+    /// Conflict-pair coverage: generate an interleaving-pair test for every
+    /// transition pair sharing an input place.
     ConflictPair,
-    /// 边界状态覆盖：覆盖所有 guard 临界状态（`x==k` / `x>=k`）。
+    /// Boundary-state coverage: cover all guard-critical states (`x==k` /
+    /// `x>=k`).
     BoundaryState,
-    /// 死锁回归：直接取死锁反例的 trace。
+    /// Deadlock regression: directly use deadlock counterexample traces.
     DeadlockRegression,
 }
 
-/// 一个生成的测试用例。
+/// A generated test case.
 #[derive(Clone, Debug)]
 pub struct TestCase {
-    /// schedule：按序执行的 (变迁, 回映锚点)。
+    /// The schedule: (transition, anchoring) in execution order.
     pub schedule: Vec<FiringStep>,
-    /// 每步前的状态（用于断言/回放）。
+    /// The state before each step (for assertions/replay).
     pub states: Vec<State>,
-    /// 初始变量绑定（数据约束）。
+    /// Initial variable bindings (data constraints).
     pub input_bindings: VarStore,
-    /// 期望断言（目标状态/不变量）。
+    /// Expected assertions (target states / invariants).
     pub expectations: Vec<String>,
 }
 
-/// 从可达图提取"最长终止路径"作为基础用例集。
+/// Extract "longest terminating paths" from the reachability graph as a base
+/// test-case set.
 pub fn extract_schedules(rg: &ReachabilityGraph) -> Vec<Vec<FiringStep>> {
-    // 简单启发：从初始状态出发做 DFS 到 terminal（无可使能或死锁），
-    // 每次取一条深度优先路径。
+    // Simple heuristic: DFS from the initial state to a terminal (no enabled
+    // transitions or a deadlock), taking one depth-first path at a time.
     let mut out = Vec::new();
     let mut visited = vec![false; rg.states.len()];
     dfs_paths(rg, rg.initial, &mut visited, &mut Vec::new(), &mut out);
@@ -81,12 +85,13 @@ fn dfs_paths(
     visited[idx] = false;
 }
 
-/// 生成测试用例（预留）。
+/// Generate test cases (reserved).
 pub fn generate_tests(
     _net: &dyn crate::netlike::NetLike,
     _rg: &ReachabilityGraph,
     _criteria: CoverageCriteria,
 ) -> Vec<TestCase> {
-    // TODO: 按准则从 extract_schedules 派生用例 + 变量绑定 + 断言。
+    // TODO: derive test cases from extract_schedules per criteria + variable
+    // bindings + assertions.
     Vec::new()
 }

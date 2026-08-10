@@ -1,4 +1,4 @@
-//! 状态：稠密标记 + 可选变量库。
+//! State: dense marking + optional variable store.
 
 use indexmap::IndexMap;
 use std::hash::{Hash, Hasher};
@@ -7,10 +7,11 @@ use std::sync::LazyLock;
 use crate::expr::Val;
 use crate::ids::PlaceId;
 
-/// 稠密标记：索引 = 库位 id，值 = token 数。
+/// Dense marking: index = place id, value = token count.
 ///
-/// 稠密向量便于矩阵热路径（索引直达）与确定性哈希；稀疏网的 token 数
-/// 通常很小，向量长度 = |P|，开销可忽略。
+/// A dense vector serves the matrix hot path (index-direct access) and gives
+/// deterministic hashing; token counts are usually tiny, and the vector length
+/// is |P|, so the cost is negligible.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Marking(pub Vec<u32>);
 
@@ -38,13 +39,10 @@ impl Marking {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (PlaceId, u32)> + '_ {
-        self.0
-            .iter()
-            .enumerate()
-            .map(|(i, &c)| (PlaceId(i), c))
+        self.0.iter().enumerate().map(|(i, &c)| (PlaceId(i), c))
     }
 
-    /// 仅迭代非零 token 的库位。
+    /// Iterate only over places with non-zero tokens.
     pub fn iter_nonzero(&self) -> impl Iterator<Item = (PlaceId, u32)> + '_ {
         self.0
             .iter()
@@ -60,14 +58,14 @@ impl Hash for Marking {
     }
 }
 
-/// 有序变量库。
+/// Ordered variable store.
 pub type VarStore = IndexMap<String, Val>;
 
-/// 一个完整状态。
+/// A complete state.
 #[derive(Clone, Debug, Default)]
 pub struct State {
     pub marking: Marking,
-    /// `None` = 该网不建模数据（纯 P/T）。
+    /// `None` means the net does not model data (pure P/T).
     pub vars: Option<VarStore>,
 }
 

@@ -1,16 +1,18 @@
-//! 索引化标识：库位/变迁用连续 usize 编号，保证热路径零哈希。
+//! Index-based identifiers: places/transitions use contiguous `usize` numbers
+//! so the hot path has zero hashing.
 
 use std::fmt;
 
-/// 库位标识（索引制）。
+/// Place identifier (index-based).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PlaceId(pub usize);
 
-/// 变迁标识（索引制）。
+/// Transition identifier (index-based).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TransitionId(pub usize);
 
-/// 弧权重（u32 足够覆盖库位容量与并发实体数）。
+/// Arc weight (`u32` covers place capacities and the number of concurrent
+/// entities).
 pub type Weight = u32;
 
 impl From<usize> for PlaceId {

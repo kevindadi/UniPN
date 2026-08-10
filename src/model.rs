@@ -1,86 +1,93 @@
-//! 库位/变迁的种类标注。
+//! Place/transition kind annotations.
 //!
-//! `kind` 只是标注，不参与 firing 语义 —— 引擎一律当普通 P/T 位处理；
-//! "线程终点/等待点/资源"等语义通过 [`crate::netlike::NetLike`] 谓词暴露。
+//! `kind` is only an annotation and does not participate in firing semantics —
+//! engines always treat every element as an ordinary P/T element. Semantics such
+//! as "thread terminal / wait point / resource" are exposed through
+//! [`crate::netlike::NetLike`] predicates.
 
 use crate::ids::Weight;
 
-/// 库位种类（两类：控制流 / 资源）。
+/// Place kind (two classes: control flow / resource).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PlaceKind {
-    /// 控制流位：token = 一个线程实例位于某个控制点。
+    /// Control-flow place: a token means a thread instance is at a control point.
     Control(ControlSub),
-    /// 资源位：token 数 = 可用单元（初始 marking 由前端给出）。
+    /// Resource place: the token count is the number of available units
+    /// (initial marking is supplied by the frontend).
     Resource(ResourceType),
 }
 
-/// 控制位结构子类（仅用于可视化/回映/语义谓词默认值）。
+/// Control-place structural sub-class (only for visualization/anchoring and the
+/// default semantic predicates).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ControlSub {
-    /// ConcIR 单条语句。
+    /// A single ConcIR statement.
     Statement,
-    /// MIR 基本块。
+    /// A MIR basic block.
     BasicBlock,
     FunctionStart,
     FunctionEnd,
-    /// 函数返回点（普通控制转移，**不是**线程结束）。
+    /// Function return point (ordinary control transfer, **not** thread end).
     Return,
-    /// 线程作用域终点（入口 / spawn 目标函数的返回位，前端标注）。
+    /// Thread-scope terminal (the return place of the entry / a spawned
+    /// function, annotated by the frontend).
     ThreadEnd,
-    /// 同步调用停车位。
+    /// Synchronous call parking place.
     CallWait,
-    /// condvar 等待点（控制流标注，供 signal-loss 分类）。
+    /// Condvar wait point (a control-flow annotation used for signal-loss
+    /// classification).
     WaitPoint,
-    /// condvar 重新加锁位。
+    /// Condvar re-acquire place.
     Reacquire,
-    /// spawn 骨架桥。
+    /// Spawn skeleton bridge.
     SpawnBridge,
-    /// 测试编排点。
+    /// Test orchestration point.
     TestPoint,
 }
 
-/// 资源类型（决定初始 token 的语义）。
+/// Resource type (determines the initial-token semantics).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ResourceType {
-    /// 互斥锁（初始 token = 1）。
+    /// Mutex (initial tokens = 1).
     Mutex,
-    /// 读写锁（初始 token = N = 并发实体数）。
+    /// Reader-writer lock (initial tokens = N = number of concurrent entities).
     RwLock { max_readers: u32 },
-    /// 计数信号量（初始 token = count）。
+    /// Counting semaphore (initial tokens = count).
     Semaphore { count: u32 },
-    /// 信道（初始 token = 0）。
+    /// Channel (initial tokens = 0).
     Channel,
-    /// 条件变量（配合 WaitPoint 控制位使用）。
+    /// Condition variable (used with `WaitPoint` control places).
     Condvar,
 }
 
-/// 统一变迁分类（标注；firing 语义由弧结构决定）。
+/// Unified transition classification (annotation; firing semantics is decided
+/// by the arc structure).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TransitionKind {
-    // ── 顺序 / 控制 ──
+    // ── Sequential / control ──
     Sequential,
     Goto,
     FunctionEnter,
     FunctionExit,
-    /// 函数返回（普通控制转移，非线程结束）。
+    /// Function return (ordinary control transfer, not thread end).
     Return,
     Drop,
     BranchTrue,
     BranchFalse,
     Switch { label: String },
-    // ── 同步资源 ──
-    /// Mutex / RwLock 写锁。
+    // ── Synchronization resources ──
+    /// Mutex / RwLock write lock.
     Lock,
     Unlock,
     ReadLock,
     ReadUnlock,
-    /// Semaphore 获取/释放。
+    /// Semaphore acquire/release.
     Acquire,
     Release,
-    /// Channel 收发。
+    /// Channel send/receive.
     Send,
     Recv,
-    // ── 数据 ──
+    // ── Data ──
     VarRead,
     VarWrite,
     AtomicLoad,
@@ -88,15 +95,15 @@ pub enum TransitionKind {
     AtomicCmpXchg,
     CasSuccess,
     CasFailure,
-    /// MIR unsafe 访问（datarace 检测用）。
+    /// MIR unsafe access (used by the data-race detector).
     UnsafeRead,
     UnsafeWrite,
     UnsafeAccess,
-    // ── 线程 ──
+    // ── Threads ──
     Spawn,
     Join,
     Call,
-    // ── condvar ──
+    // ── Condvar ──
     CondvarWaitEnter,
     CondvarWakeByNotify,
     CondvarWakeByNotifyAll,
@@ -105,15 +112,15 @@ pub enum TransitionKind {
     CondvarNotifyLost,
     CondvarNotifyAll,
     CondvarNotifyAllLost,
-    // ── 测试编排 ──
+    // ── Test orchestration ──
     TestBarrier,
     TestInject,
     TestPoint,
-    // ── 兜底 ──
+    // ── Fallback ──
     Other(String),
 }
 
-/// 库位。`capacity` 可选（ConcBugDect 有，CVN 无）。
+/// A place. `capacity` is optional (ConcBugDect has it, CVN does not).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
     pub id: crate::ids::PlaceId,
@@ -122,20 +129,21 @@ pub struct Place {
     pub capacity: Option<Weight>,
 }
 
-/// 变迁。
+/// A transition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Transition {
     pub id: crate::ids::TransitionId,
     pub name: String,
     pub kind: TransitionKind,
-    /// 回映锚点（ConcIR sid 或源码行号）。
+    /// Anchoring back to the source (ConcIR sid or source line).
     pub anchors: Vec<String>,
-    /// disjunctive OR 族（互斥变体防死迁移误报）。
+    /// Disjunctive OR family (mutually-exclusive variants, to avoid false
+    /// dead-transition reports).
     pub family: Option<String>,
-    /// 时间扩展（feature `timed`）：静态延迟区间。
+    /// Time extension (feature `timed`): static delay interval.
     #[cfg(feature = "timed")]
     pub timing: Option<crate::timed::StaticInterval>,
-    /// 时间扩展（feature `timed`）：固定优先级。
+    /// Time extension (feature `timed`): fixed priority.
     #[cfg(feature = "timed")]
     pub priority: Option<crate::timed::Priority>,
 }

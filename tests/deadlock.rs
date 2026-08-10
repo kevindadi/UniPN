@@ -1,4 +1,4 @@
-//! 死锁检测。
+//! Deadlock detection.
 
 mod common;
 
@@ -10,13 +10,14 @@ fn mutex_deadlock_detected() {
     let rg = explore(&net, &AnalysisConfig::default());
     assert!(!rg.deadlocks.is_empty(), "expect at least one deadlock");
 
-    // 至少一个死锁是"互等"死锁：两个线程各持一锁等另一锁。
+    // At least one deadlock is a mutual-wait: each thread holds one lock
+    // and waits for the other.
     let mutual_wait = rg.deadlocks.iter().any(|d| {
         unipn::analysis::blocked_places(&net, &d.final_state).len() >= 2
     });
     assert!(mutual_wait, "a 2-thread mutual-wait deadlock must be found");
 
-    // 每个死锁反例都有非空 witness trace。
+    // Every deadlock counterexample has a non-empty witness trace.
     assert!(rg.deadlocks.iter().all(|d| !d.trace.is_empty()));
 }
 
@@ -37,8 +38,9 @@ fn dfs_finds_same_deadlock() {
 fn reachable_path_covers_all_interleavings() {
     let net = common::mutex_deadlock();
     let rg = explore(&net, &AnalysisConfig::default());
-    // 两个锁的获取顺序：t1A·t2B（死锁）以及 t1A·t1B、t2B·t2A 等。
-    // 至少一条路径走到 t1_done 或 t2_done（无死锁完成序存在）。
+    // Lock acquisition orders: t1A·t2B (deadlock) as well as t1A·t1B, t2B·t2A,
+    // etc. At least one path must reach t1_done or t2_done (a deadlock-free
+    // completing order exists).
     let terminal = rg
         .states
         .iter()
