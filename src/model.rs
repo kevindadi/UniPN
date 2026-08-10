@@ -131,6 +131,14 @@ pub struct Place {
     pub capacity: Option<Weight>,
 }
 
+impl Place {
+    /// Whether this is a control-flow place (Control or a wait-point, which is
+    /// modeled as `Control(ControlSub::WaitPoint)`).
+    pub fn is_control_flow(&self) -> bool {
+        matches!(self.kind, PlaceKind::Control(_))
+    }
+}
+
 /// A transition.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transition {
