@@ -71,10 +71,12 @@ fn explore_bfs(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
         }
         for t in enabled {
             if let Ok(next) = net.fire(t, &state)
-                && let Some((target, _)) = e.insert_state(next)
+                && let Some((target, is_new)) = e.insert_state(next)
             {
                 e.record_edge(idx, target, t);
-                queue.push_back(target);
+                if is_new {
+                    queue.push_back(target);
+                }
             }
         }
     }
@@ -100,10 +102,12 @@ fn explore_dfs(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
         }
         for t in enabled {
             if let Ok(next) = net.fire(t, &state)
-                && let Some((target, _)) = e.insert_state(next)
+                && let Some((target, is_new)) = e.insert_state(next)
             {
                 e.record_edge(idx, target, t);
-                stack.push(target);
+                if is_new {
+                    stack.push(target);
+                }
             }
         }
     }
