@@ -26,6 +26,14 @@ impl Incidence {
         self.cols.len()
     }
 
+    /// Extend the number of transition columns to `n`, preserving existing
+    /// columns.
+    pub fn ensure_transitions(&mut self, n: usize) {
+        while self.cols.len() < n {
+            self.cols.push(Vec::new());
+        }
+    }
+
     /// Add an arc (accumulates weight).
     pub fn add(&mut self, t: TransitionId, p: PlaceId, weight: Weight) {
         if weight == 0 {

@@ -61,8 +61,8 @@ impl NetBuilder {
             #[cfg(feature = "timed")]
             priority: None,
         });
-        self.pre = Incidence::with_transitions(self.transitions.len());
-        self.post = Incidence::with_transitions(self.transitions.len());
+        self.pre.ensure_transitions(self.transitions.len());
+        self.post.ensure_transitions(self.transitions.len());
         id
     }
 
