@@ -81,6 +81,16 @@ impl Net {
     pub fn var_domain(&self, var: &str) -> Option<(i64, i64)> {
         self.var_domains.get(var).copied()
     }
+
+    /// The guard on the input arc `place → transition`, if any.
+    pub fn input_guard(&self, t: TransitionId, p: PlaceId) -> Option<&BoolExpr> {
+        self.pre_guards.get(&(t, p))
+    }
+
+    /// The variable update on the output arc `transition → place`, if any.
+    pub fn output_update(&self, t: TransitionId, p: PlaceId) -> Option<&VarUpdate> {
+        self.post_updates.get(&(t, p))
+    }
 }
 
 impl NetLike for Net {
