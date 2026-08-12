@@ -369,6 +369,7 @@ impl<'a> StateClassReachabilityGraph<'a> {
         self.vertices_by_marking.clear();
         self.vertices_by_hash.clear();
         self.next_id = 0;
+        crate::timed::reset_overflow_recording();
 
         let mut initial = self.compute_initial_class();
         if self.config.extrapolation {

@@ -274,3 +274,19 @@ impl<E> State<E> {
         Self { marking, extra }
     }
 }
+
+impl std::ops::Index<usize> for Marking {
+    type Output = usize;
+
+    fn index(&self, index: usize) -> &usize {
+        &self.0[index]
+    }
+}
+
+impl std::ops::Index<PlaceId> for Marking {
+    type Output = usize;
+
+    fn index(&self, place: PlaceId) -> &usize {
+        &self.0[place.index()]
+    }
+}

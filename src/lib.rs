@@ -32,4 +32,7 @@ pub use pt::{
     AtomicOrdering, CapacityMode, PlaceType, PtNet, PtPlaceKind, PtTransitionKind, SourceLocation,
     TransitionType, UnsafeOp, initial_marking, marking,
 };
-pub use timed::{TimeInterval, TimedNet, TimedPlaceKind, TimedTransitionKind};
+pub use timed::{
+    TimeInterval, TimedNet, TimedPlaceKind, TimedTransitionKind, CONTROL_TRANSITION_CORE, INF,
+    overflowed_places, reset_overflow_recording,
+};
