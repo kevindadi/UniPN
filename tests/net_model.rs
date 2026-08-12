@@ -151,7 +151,7 @@ fn timed_net_model_builds() {
     let p = net.add_place(
         "cpu",
         TimedPlaceKind {
-            capacity: 1,
+            capacity: Some(1),
             saturate: false,
         },
     );

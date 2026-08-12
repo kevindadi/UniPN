@@ -34,9 +34,9 @@ No feature flags. Integration tests live in `tests/`; use `--test <file-stem>` t
 
 - `net`: the single generic model — `Place<K>`, `Transition<K>`, `Arc<K>` (with `ArcDir` and `usize` weight), `Net<PK, TK, AK>`, `Marking` (`Vec<usize>`, index = place id), and `State<E>` (marking + per-net `extra`). Pure structure; no firing semantics and no marking live inside `Net`.
 - `pt`: ConcBugDect's `PtPlaceKind`/`PtTransitionKind` (place/transition metadata) + `PtNet` alias and its P/T firing (`NetLike` impl with read/inhibitor/reset arcs and capacity modes).
-- `timed`: PTPN's `TimeInterval`/`TimedPlaceKind`/`TimedTransitionKind` + `TimedNet` alias. Timed (DBM/state-class) analysis is reserved and lives in PTPN itself.
+- `timed`: PTPN's `TimeInterval`/`TimedPlaceKind`/`TimedTransitionKind` + `TimedNet` alias and its discrete firing. The timed **analysis** (DBM/state-class reachability) lives in `analysis::timed` — this is the timed net's core analysis, kept in UniPN.
 - `cvn`: ConcPlanVerify's `CvnNet` + `CvnBuilder` + guard/update firing; `model` (place/transition kinds) and `expr` (values/expressions/guards) are its data model.
-- `analysis`: the [`NetLike`](src/analysis/mod.rs) firing contract plus `explore` (BFS/DFS reachability) and `find_deadlocks` (caller-supplied deadlock predicate). The explorer reports *blocked* states; it never decides what a deadlock is.
+- `analysis`: the [`NetLike`](src/analysis/mod.rs) firing contract plus `explore` (BFS/DFS reachability) and `find_deadlocks` (caller-supplied deadlock predicate). `analysis::timed` is the PTPN state-class (DBM) reachability — the timed net's core analysis. The explorer reports *blocked* states; it never decides what a deadlock is.
 - `ids`: `PlaceId`/`TransitionId` (contiguous `usize`).
 
 Every count — weights, token counts, ids — is `usize`.
@@ -45,4 +45,4 @@ Every count — weights, token counts, ids — is `usize`.
 
 Keep the crate library-only. Do not add a placeholder semantics implementation that returns fake successful results; unsupported execution behavior should remain an explicit boundary until a concrete semantics layer is designed.
 
-Intentionally out of scope for the shared model: user-defined function execution, MIR lowering, timed DBM/state-class analysis, net reduction (loop/sequence/intermediate), and test-case generation. These belong to the individual frontends (ConcBugDect, PTPN, ConcPlanVerify), which consume `Net`/`NetLike` rather than extending it.
+Intentionally out of scope for the shared model: user-defined function execution, MIR lowering, net reduction (loop/sequence/intermediate), and test-case generation. These belong to the individual frontends (ConcBugDect, PTPN, ConcPlanVerify), which consume `Net`/`NetLike` rather than extending it. The timed **model** and its DBM/state-class **analysis** live in UniPN; PTPN keeps only its TDG lowering, `.ptpn` parser, CLI, Romeo/PToPNer export, and scheduling metrics.

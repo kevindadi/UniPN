@@ -224,7 +224,7 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
 }
 
 /// A dense marking: index = place id, value = token count (`usize`).
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
 pub struct Marking(pub Vec<usize>);
 
 impl Marking {

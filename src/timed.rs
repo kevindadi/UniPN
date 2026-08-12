@@ -2,14 +2,15 @@
 //!
 //! `TimedNet` is [`Net`] instantiated with PTPN's place/transition kind
 //! payloads and no arc kind. Time is an *annotation* on transitions; the
-//! state-class (DBM) firing semantics is reserved — see `crate::analysis`
-//! for the untimed reachability and PTPN itself for the timed analysis.
+//! discrete (untimed) firing lives here, while the state-class (DBM)
+//! reachability analysis lives in [`crate::analysis::timed`].
 
 use serde::{Deserialize, Serialize};
 
-use crate::net::Net;
+use crate::ids::TransitionId;
+use crate::net::{ArcDir, Marking, Net};
 
-/// Sentinel for "no upper bound" (+∞).
+/// Sentinel for "no upper bound" (+∞) in time intervals and DBM matrices.
 pub const INF: i32 = i32::MAX;
 
 /// A time interval with optional open endpoints.
@@ -61,8 +62,10 @@ impl TimeInterval {
 /// PTPN place attributes.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TimedPlaceKind {
-    pub capacity: usize,
-    /// Saturating places clamp overflow instead of blocking the transition.
+    /// `None` = unbounded.
+    pub capacity: Option<usize>,
+    /// Saturating places absorb overflow (a transition producing into a full
+    /// saturating place stays enabled and the count is clamped on firing).
     pub saturate: bool,
 }
 
@@ -77,3 +80,36 @@ pub struct TimedTransitionKind {
 
 /// The priority timed Petri net (no arc payload).
 pub type TimedNet = Net<TimedPlaceKind, TimedTransitionKind, ()>;
+
+impl TimedNet {
+    /// Structural (input-driven) enabling: every input place holds enough
+    /// tokens. Successor capacity never gates a transition (overflow on
+    /// non-saturating places is clamped on firing).
+    pub fn is_enabled(&self, marking: &Marking, transition: TransitionId) -> bool {
+        self.arcs_of(transition, ArcDir::Input)
+            .all(|arc| marking.tokens(arc.place) >= arc.weight)
+    }
+
+    /// Fires a transition: consumes input tokens and produces output tokens,
+    /// clamping each output place to its capacity.
+    pub fn fire(&self, marking: &Marking, transition: TransitionId) -> Marking {
+        let mut next = marking.clone();
+
+        for arc in self.arcs_of(transition, ArcDir::Input) {
+            let current = next.tokens(arc.place);
+            next.set(arc.place, current.saturating_sub(arc.weight));
+        }
+
+        for arc in self.arcs_of(transition, ArcDir::Output) {
+            let current = next.tokens(arc.place);
+            let produced = current.saturating_add(arc.weight);
+            let clamped = self
+                .place(arc.place)
+                .and_then(|p| p.kind.capacity)
+                .map_or(produced, |cap| produced.min(cap));
+            next.set(arc.place, clamped);
+        }
+
+        next
+    }
+}

@@ -4,6 +4,10 @@
 //! firing contract. The explorer reports which states are *blocked* (no
 //! enabled transitions); whether a blocked state is a *deadlock* is decided by
 //! the caller via [`find_deadlocks`].
+//!
+//! Timed (DBM/state-class) analysis lives in [`timed`].
+
+pub mod timed;
 
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
