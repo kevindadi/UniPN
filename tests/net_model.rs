@@ -116,7 +116,7 @@ fn cvn_counter() -> (CvnNet, unipn::CvnState) {
 #[test]
 fn cvn_guard_and_update_drive_firing() {
     let (net, initial) = cvn_counter();
-    assert_eq!(initial.extra.get("x"), Some(&Val::int(0)));
+    assert_eq!(initial.extra.vars.get("x"), Some(&Val::int(0)));
 
     let graph = explore(&net, initial, &AnalysisConfig::default());
     // x increments 0→3 while x<3, so 3 firings, 4 states.
@@ -124,7 +124,7 @@ fn cvn_guard_and_update_drive_firing() {
     assert!(!graph.truncated);
 
     let final_state = &graph.states[*graph.blocked.last().unwrap()];
-    assert_eq!(final_state.extra.get("x"), Some(&Val::int(3)));
+    assert_eq!(final_state.extra.vars.get("x"), Some(&Val::int(3)));
 }
 
 #[test]
