@@ -219,6 +219,14 @@ impl PtBuilder {
         self.add_weighted_arc(place, transition, ArcDir::Output, weight);
     }
 
+    pub fn set_input_weight(&mut self, place: PlaceId, transition: TransitionId, weight: usize) {
+        self.set_weighted_arc(place, transition, ArcDir::Input, weight);
+    }
+
+    pub fn set_output_weight(&mut self, place: PlaceId, transition: TransitionId, weight: usize) {
+        self.set_weighted_arc(place, transition, ArcDir::Output, weight);
+    }
+
     fn add_weighted_arc(
         &mut self,
         place: PlaceId,
@@ -235,6 +243,24 @@ impl PtBuilder {
             })
         {
             arc.weight = arc.weight.saturating_add(weight);
+        } else {
+            self.net.add_arc(place, transition, direction, weight, ());
+        }
+    }
+
+    fn set_weighted_arc(
+        &mut self,
+        place: PlaceId,
+        transition: TransitionId,
+        direction: ArcDir,
+        weight: usize,
+    ) {
+        if let Some(arc) =
+            self.net.arcs.iter_mut().find(|a| {
+                a.place == place && a.transition == transition && a.direction == direction
+            })
+        {
+            arc.weight = weight;
         } else {
             self.net.add_arc(place, transition, direction, weight, ());
         }
