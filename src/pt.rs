@@ -302,6 +302,12 @@ impl PtBuilder {
         &self.net
     }
 
+    /// A cloned snapshot of the built net + initial marking (without consuming
+    /// the builder, so construction can continue).
+    pub fn snapshot(&self) -> (PtNet, Marking) {
+        (self.net.clone(), self.initial_marking())
+    }
+
     pub fn to_dot(&self) -> String {
         self.net.to_dot()
     }
@@ -424,6 +430,27 @@ impl DiagnosticReport {
         !self.isolated_places.is_empty()
             || !self.isolated_transitions.is_empty()
             || !self.warnings.is_empty()
+    }
+
+    pub fn save_to_file(&self, path: &str) -> std::io::Result<()> {
+        use std::io::Write;
+        let mut file = std::fs::File::create(path)?;
+        writeln!(file, "=== Petri net connectivity diagnostics ===")?;
+        writeln!(
+            file,
+            "Totals: {} places, {} transitions",
+            self.total_places, self.total_transitions
+        )?;
+        for (id, name) in &self.isolated_places {
+            writeln!(file, "  [{}] {}", id.index(), name)?;
+        }
+        for (id, name) in &self.isolated_transitions {
+            writeln!(file, "  [{}] {}", id.index(), name)?;
+        }
+        for warning in &self.warnings {
+            writeln!(file, "  - {warning}")?;
+        }
+        Ok(())
     }
 }
 
