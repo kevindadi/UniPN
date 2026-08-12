@@ -3,10 +3,9 @@
 //! A pure P/T net does not model data (`State::vars = None`); frontends that do
 //! (ConcIR→CVN) use this module for input-arc guards and output-arc updates.
 
-use indexmap::IndexMap;
+use std::collections::BTreeMap;
 use std::fmt;
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 /// A fully-known concrete value.
@@ -102,7 +101,7 @@ pub enum CmpOp {
 }
 
 /// Value expression.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Expr {
     Lit(Val),
     Ref(String),
@@ -114,7 +113,7 @@ pub enum Expr {
 }
 
 /// Boolean guard (three-valued evaluation).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BoolExpr {
     True,
     Cmp {
@@ -128,7 +127,7 @@ pub enum BoolExpr {
 }
 
 /// Variable update map.
-pub type VarUpdate = IndexMap<String, Expr>;
+pub type VarUpdate = BTreeMap<String, Expr>;
 
 /// Three-valued guard result. `Unknown` is treated as satisfied
 /// (over-approximation).
@@ -146,7 +145,7 @@ impl GuardResult {
 }
 
 /// Evaluate a value expression against the variable store.
-pub fn eval_expr(expr: &Expr, vars: &IndexMap<String, Val>) -> Val {
+pub fn eval_expr(expr: &Expr, vars: &BTreeMap<String, Val>) -> Val {
     match expr {
         Expr::Lit(v) => v.clone(),
         Expr::Ref(name) => vars.get(name).cloned().unwrap_or(Val::Unknown),
@@ -202,7 +201,7 @@ fn eval_concrete_binop(op: &Op, lhs: &ConcreteVal, rhs: &ConcreteVal) -> Val {
 }
 
 /// Evaluate a boolean guard against the variable store.
-pub fn eval_guard(guard: &BoolExpr, vars: &IndexMap<String, Val>) -> GuardResult {
+pub fn eval_guard(guard: &BoolExpr, vars: &BTreeMap<String, Val>) -> GuardResult {
     match guard {
         BoolExpr::True => GuardResult::True,
         BoolExpr::Cmp { op, lhs, rhs } => {
@@ -297,6 +296,3 @@ fn eval_concrete_cmp(op: &CmpOp, lhs: &ConcreteVal, rhs: &ConcreteVal) -> bool {
         _ => false,
     }
 }
-
-// Compatibility: enables val/expr for JSON-serialization scenarios.
-pub(crate) fn _assert_serde<T: Serialize + DeserializeOwned>() {}

@@ -12,10 +12,6 @@ pub struct PlaceId(pub usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TransitionId(pub usize);
 
-/// Arc weight (`u32` covers place capacities and the number of concurrent
-/// entities).
-pub type Weight = u32;
-
 impl From<usize> for PlaceId {
     fn from(v: usize) -> Self {
         Self(v)
@@ -29,13 +25,13 @@ impl From<usize> for TransitionId {
 }
 
 impl PlaceId {
-    pub fn index(self) -> usize {
+    pub const fn index(self) -> usize {
         self.0
     }
 }
 
 impl TransitionId {
-    pub fn index(self) -> usize {
+    pub const fn index(self) -> usize {
         self.0
     }
 }

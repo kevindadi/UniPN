@@ -1,116 +1,43 @@
-# UniPN — Unified Petri Net
+# UniPN
 
-A fast, extensible Petri net core shared by several frontends and analysis consumers:
+UniPN is a Rust library for representing a **single generic Petri-net model** shared by three frontends. It is library-only: no CLI, no execution language, no project-specific verification algorithms.
 
-```text
-Frontends (net building)          Core (matrix storage + trait)   Consumers (analysis)
-  ConcIR   ─┐                    Net (CSC incidence matrix)      deadlock / dead-transition / conflict
-  Rust MIR ┼─▶ NetLike ───────▶  explore (BFS/DFS/POR)           invariants
-  test intent┘   (object-safe)   deadlock / dead_transition       test-case generation (testgen)
-  time (PTPN) ─▶ Timed reserve   conflict / invariants / dot      timed / real-time scheduling
-```
+## The model
 
-## Design principles
-
-1. **Trait-first**: `NetLike` is the single contract (object-safe). Any net
-   (CVN, ConcBugDect MIR→PN, future test/timed nets) only needs to implement it
-   to be consumed by the shared algorithms. A **pure P/T net** only fills the
-   structural predicates (`pre_arcs` / `post_arcs` / `initial_state`);
-   `enabled_transitions` and `fire` use the trait's default implementations.
-2. **Matrix-backed**: the core `Net` stores the `Pre/Post` incidence as **CSC
-   sparse columns**, so the enabled/fire hot path is O(|arcs|) instead of
-   O(|P|·|T|); the dense `C = Post − Pre` matrix is only materialized when
-   linear algebra is needed (invariants etc.).
-3. **Semantics externalized**: `PlaceKind` / `TransitionKind` are only
-   annotations; semantics such as "thread terminal / wait point / resource" are
-   exposed through frontend predicates (`is_thread_terminal` / `is_wait_point` /
-   `is_resource`), not hardcoded in the common layer. `return` is a function
-   return, not thread end; spawn/join/branch are all arc-structure patterns.
-4. **Extensible**: `timed` / `invariants` are feature-gated extension slots.
-
-## Quick start
+One generic net, three instantiations:
 
 ```rust
-use unipn::analysis::{AnalysisConfig, explore};
-use unipn::expr::BoolExpr;
-use unipn::model::{ControlSub, PlaceKind, TransitionKind};
-use unipn::{NetBuilder, NetLike};
-
-let mut b = NetBuilder::new();
-let p0 = b.add_place("p0", PlaceKind::Control(ControlSub::Statement));
-let p1 = b.add_place("p1", PlaceKind::Control(ControlSub::ThreadEnd));
-let t0 = b.add_transition("t0", TransitionKind::Sequential);
-b.add_input_arc(p0, t0, 1, BoolExpr::True);
-b.add_output_arc(t0, p1, 1, None);
-b.set_initial_tokens(p0, 1);
-let net = b.build();
-
-let rg = explore(&net, &AnalysisConfig::default());
-assert!(rg.deadlocks.is_empty());
+// src/net.rs — the generic model
+pub struct Place<K = ()>     { id: PlaceId, name: String, kind: K }
+pub struct Transition<K = ()> { id: TransitionId, name: String, kind: K }
+pub struct Arc<K = ()>       { place, transition, direction: ArcDir, weight: usize, kind: K }
+pub struct Net<PK, TK, AK>   { places: Vec<Place<PK>>, transitions: Vec<Transition<TK>>, arcs: Vec<Arc<AK>> }
+pub struct Marking(pub Vec<usize>);       // index = place id, value = tokens
+pub struct State<E = ()>      { marking: Marking, extra: E }
 ```
 
-### Extending with a custom net
+The common structure (id, name, direction, weight) is fixed; the domain-specific part is carried by the kind payloads `PK`/`TK`/`AK`:
 
-```rust
-impl NetLike for MyNet {
-    fn num_places(&self) -> usize { /* ... */ }
-    fn num_transitions(&self) -> usize { /* ... */ }
-    fn pre_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> { /* ... */ }
-    fn post_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> { /* ... */ }
-    fn initial_state(&self) -> State { /* ... */ }
-    // enabled_transitions / fire use the default pure P/T implementations;
-    // frontends with guards override them as needed.
-}
-// The shared algorithms now work directly:
-let rg = explore(&my_net, &AnalysisConfig::default());
-```
+| Frontend | Alias | Place kind | Transition kind | Arc kind |
+| --- | --- | --- | --- | --- |
+| ConcBugDect (MIR→PN) | `pt::PtNet` | `PtPlaceKind` | `PtTransitionKind` | `()` |
+| PTPN (priority timed) | `timed::TimedNet` | `TimedPlaceKind` | `TimedTransitionKind` | `()` |
+| ConcPlanVerify (CVN) | `cvn::CvnNet` | `model::PlaceKind` | `model::TransitionKind` | `cvn::CvnArcKind` |
 
-## Modules
+The marking is kept separate from the net; anything a net needs beyond token counts (a CVN variable store, a timed clock zone, …) lives in its own `State` `extra` payload.
 
-```
-src/
-├── ids.rs        PlaceId/TransitionId (index-based), Weight
-├── model.rs      PlaceKind / TransitionKind / Place / Transition (annotations)
-├── expr.rs       Val / Expr / BoolExpr (optional data model, for guards/updates)
-├── state.rs      Marking (dense vector) / VarStore / State
-├── storage.rs    CSC sparse-column Incidence + dense effect matrix C = Post − Pre
-├── netlike.rs    NetLike trait (object-safe) + pure P/T default implementations
-├── net.rs        Net: the matrix-backed net (optional guards/updates/capacities/var domains)
-├── builder.rs    NetBuilder
-├── analysis/
-│   ├── explore.rs          BFS / DFS / POR(sleep-set) → ReachabilityGraph
-│   ├── deadlock.rs         deadlock detection + blocked places
-│   ├── dead_transition.rs  behavioral dead transitions (OR-family aware)
-│   ├── conflict.rs         transition pairs sharing an input place (contention for testgen)
-│   ├── invariants.rs       place/transition invariants (feature `invariants`)
-│   └── timed.rs            state-class DBM time-analysis reserve (feature `timed`)
-├── export.rs       Graphviz DOT
-├── testgen.rs      reachability-graph paths → test-case schedules (pure consumer)
-└── timed.rs        time-extension types: StaticInterval / Priority / ClockClass
-```
+## Analysis
 
-## Feature flags
+Analysis is not part of the model. The [`analysis`](src/analysis/mod.rs) module provides the minimal firing contract [`NetLike`] plus `explore` (BFS/DFS reachability) and `find_deadlocks`. The explorer only reports *blocked* states; the caller decides what counts as a deadlock.
 
-| Feature      | Default | Description |
-| ------------ | ------- | ----------- |
-| `invariants` | on      | place/transition invariants (Gaussian nullspace, exact BigInt) |
-| `timed`      | off     | time/priority extension (`Transition.timing/.priority`, `AnalysisMode::Timed`, PTPN state-class DBM bridge) |
-
-## Timed analysis (PTPN) reserve
-
-The `timed` feature introduces static time intervals `[dmin, dmax]`, fixed
-priorities and clock classes. The goal is to bridge
-[PTPN](https://github.com/kevindadi/PTPN): the unified net is exported (via an
-export bridge) as PTPN's `.ptpn` / TDG JSON, PTPN runs the state-class (DBM)
-reachability analysis, and the results come back. On the IR side only optional
-annotations are added; the core firing semantics is untouched.
-
-## Tests
+## Development
 
 ```bash
+cargo fmt --all
+cargo check --all-targets
 cargo test
-cargo test --features timed
-cargo test --no-default-features
+cargo clippy --all-targets -- -D warnings
+cargo doc --no-deps
 ```
 
 ## License

@@ -1,0 +1,9 @@
+[submodule "submodules/PTPN"]
+	path = submodules/PTPN
+	url = https://github.com/kevindadi/PTPN.git
+[submodule "submodules/ConcBugDect-Rust"]
+	path = submodules/ConcBugDect-Rust
+	url = https://github.com/kevindadi/ConcBugDect-Rust.git
+[submodule "submodules/ConcPlanVerify"]
+	path = submodules/ConcPlanVerify
+	url = https://github.com/kevindadi/ConcPlanVerify.git
