@@ -103,16 +103,18 @@ fn concrete_domain_reports_unsupported_or_invalid_inputs() {
     );
 
     let mut env = unipn::BindingEnv::default();
-    assert!(domain
-        .match_pattern(&mut env, &Pattern::Var("x".into()), &Value::Int(1))
-        .unwrap());
+    assert!(
+        domain
+            .match_pattern(&mut env, &Pattern::Var("x".into()), &Value::Int(1))
+            .unwrap()
+    );
     assert_eq!(
         domain.match_pattern(&mut env, &Pattern::Var("x".into()), &Value::Int(2)),
         Err(DomainError::BindingConflict("x".into()))
     );
 }
-
-
+#[test]
+fn colored_marking_supports_typed_tokens() {
     let mut marking = unipn::ColoredMarking::new(1);
     let token = Token::new(0, Value::Int(1));
     assert!(marking.insert(PlaceId(0), token.clone()));
