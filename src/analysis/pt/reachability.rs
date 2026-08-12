@@ -254,7 +254,8 @@ pub struct StateGraph {
     pub truncated: bool,
     pub failures: Vec<TransitionFailure>,
     pub markings: HashMap<Marking, usize>,
-    net: Option<PtNet>,
+    /// The underlying net (for arc inspection).
+    pub net: Option<PtNet>,
 }
 
 impl StateGraph {
