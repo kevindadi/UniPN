@@ -379,6 +379,40 @@ impl NetLike for PtNet {
 }
 
 impl PtNet {
+    /// The aggregate input weight on `place → transition` (0 if no arc).
+    pub fn input_weight(&self, place: PlaceId, transition: TransitionId) -> usize {
+        self.arcs
+            .iter()
+            .filter(|a| a.place == place && a.transition == transition && a.direction == ArcDir::Input)
+            .map(|a| a.weight)
+            .sum()
+    }
+
+    /// The aggregate output weight on `transition → place` (0 if no arc).
+    pub fn output_weight(&self, place: PlaceId, transition: TransitionId) -> usize {
+        self.arcs
+            .iter()
+            .filter(|a| {
+                a.place == place && a.transition == transition && a.direction == ArcDir::Output
+            })
+            .map(|a| a.weight)
+            .sum()
+    }
+
+    /// `Result`-shaped firing (mirrors ConcBugDect's `fire_transition`).
+    pub fn fire_transition(
+        &self,
+        marking: &Marking,
+        transition: TransitionId,
+    ) -> Result<Marking, ()> {
+        NetLike::fire(self, marking, transition).ok_or(())
+    }
+
+    /// The enabled transitions under a marking (mirrors ConcBugDect's API).
+    pub fn enabled_transitions(&self, marking: &Marking) -> Vec<TransitionId> {
+        NetLike::enabled(self, marking)
+    }
+
     fn is_enabled(&self, state: &Marking, transition: TransitionId) -> bool {
         // Aggregate input-arc weights per place.
         let mut required: Vec<(PlaceId, usize)> = Vec::new();
