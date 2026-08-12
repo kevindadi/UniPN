@@ -13,6 +13,8 @@ pub enum RuntimeError {
     Unsupported,
     #[error("invalid model: {0}")]
     InvalidModel(#[from] ModelError),
+    #[error("invalid P/T model: {0}")]
+    InvalidPtModel(String),
     #[error("unknown transition {0}")]
     UnknownTransition(TransitionId),
     #[error("marking has {actual} places, expected {expected}")]
@@ -21,4 +23,6 @@ pub enum RuntimeError {
     ArithmeticOverflow { place: PlaceId },
     #[error("token count underflow at place {place}")]
     ArithmeticUnderflow { place: PlaceId },
+    #[error("capacity exceeded at place {place}")]
+    CapacityExceeded { place: PlaceId },
 }

@@ -43,7 +43,7 @@ impl PtSemantics {
     }
 
     fn validate_state(&self, model: &NetModel, state: &PtState) -> Result<(), RuntimeError> {
-        let actual = state.marking.0.len();
+        let actual = state.marking.len();
         if actual != model.places.len() {
             return Err(RuntimeError::InvalidMarkingLength {
                 expected: model.places.len(),
@@ -57,7 +57,7 @@ impl PtSemantics {
         &self,
         model: &NetModel,
         transition: TransitionId,
-    ) -> Result<Vec<(PlaceId, u32)>, RuntimeError> {
+    ) -> Result<Vec<(PlaceId, u64)>, RuntimeError> {
         let mut totals = Vec::new();
         for arc in model.input_arcs(transition) {
             let Some((_, total)) = totals.iter_mut().find(|(place, _)| *place == arc.place) else {
@@ -75,7 +75,7 @@ impl PtSemantics {
         &self,
         model: &NetModel,
         transition: TransitionId,
-    ) -> Result<Vec<(PlaceId, u32)>, RuntimeError> {
+    ) -> Result<Vec<(PlaceId, u64)>, RuntimeError> {
         let mut totals = Vec::new();
         for arc in model.output_arcs(transition) {
             let Some((_, total)) = totals.iter_mut().find(|(place, _)| *place == arc.place) else {
@@ -94,9 +94,9 @@ impl PtSemantics {
         model: &NetModel,
         place: PlaceId,
         tokens: &[Token],
-    ) -> Result<u32, RuntimeError> {
+    ) -> Result<u64, RuntimeError> {
         let place_sort = model.place(place).expect("validated place").sort;
-        let mut count = 0_u32;
+        let mut count = 0_u64;
         for token in tokens {
             if token.sort != place_sort || !matches!(token.value, Value::Unit) {
                 return Err(RuntimeError::TypeMismatch);

@@ -50,14 +50,14 @@ pub struct TransitionDecl {
 pub struct InputArc {
     pub place: PlaceId,
     pub pattern: Pattern,
-    pub weight: u32,
+    pub weight: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputArc {
     pub place: PlaceId,
     pub term: Term,
-    pub weight: u32,
+    pub weight: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

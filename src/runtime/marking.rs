@@ -49,18 +49,42 @@ impl<T: PartialEq> Multiset<T> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
-pub struct PtMarking(pub Vec<u32>);
+pub struct PtMarking(pub Vec<u64>);
 
 impl PtMarking {
     pub fn new(place_count: usize) -> Self {
         Self(vec![0; place_count])
     }
 
-    pub fn tokens(&self, place: PlaceId) -> u32 {
+    pub fn from_tokens(tokens: impl IntoIterator<Item = u64>) -> Self {
+        Self(tokens.into_iter().collect())
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn tokens(&self, place: PlaceId) -> u64 {
         self.0.get(place.index()).copied().unwrap_or_default()
     }
 
-    pub fn set(&mut self, place: PlaceId, tokens: u32) -> bool {
+    pub fn iter(&self) -> impl Iterator<Item = (PlaceId, &u64)> {
+        self.0
+            .iter()
+            .enumerate()
+            .map(|(index, tokens)| (PlaceId(index), tokens))
+    }
+
+    pub fn iter_nonzero(&self) -> impl Iterator<Item = (PlaceId, u64)> + '_ {
+        self.iter()
+            .filter_map(|(place, tokens)| (*tokens != 0).then_some((place, *tokens)))
+    }
+
+    pub fn set(&mut self, place: PlaceId, tokens: u64) -> bool {
         let Some(slot) = self.0.get_mut(place.index()) else {
             return false;
         };

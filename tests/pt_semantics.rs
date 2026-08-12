@@ -29,7 +29,7 @@ fn transition(id: usize) -> TransitionDecl {
     }
 }
 
-fn input(transition: usize, place: usize, weight: u32) -> ArcDecl {
+fn input(transition: usize, place: usize, weight: u64) -> ArcDecl {
     ArcDecl::Input {
         transition: TransitionId(transition),
         arc: InputArc {
@@ -40,7 +40,7 @@ fn input(transition: usize, place: usize, weight: u32) -> ArcDecl {
     }
 }
 
-fn output(transition: usize, place: usize, weight: u32) -> ArcDecl {
+fn output(transition: usize, place: usize, weight: u64) -> ArcDecl {
     ArcDecl::Output {
         transition: TransitionId(transition),
         arc: OutputArc {
@@ -74,7 +74,7 @@ fn model(
     }
 }
 
-fn state(tokens: Vec<u32>) -> PtState {
+fn state(tokens: Vec<u64>) -> PtState {
     PtState::new(PtMarking(tokens), (), ())
 }
 
@@ -170,13 +170,13 @@ fn fire_reports_unknown_transition_and_invalid_marking_length() {
 #[test]
 fn fire_reports_arithmetic_overflow_without_mutating_the_input_state() {
     let net = model(1, vec![transition(0)], vec![output(0, 0, 1)], Vec::new());
-    let before = state(vec![u32::MAX]);
+    let before = state(vec![u64::MAX]);
 
     assert_eq!(
         PtSemantics.fire(&net, &before, TransitionId(0), &()),
         Err(RuntimeError::ArithmeticOverflow { place: PlaceId(0) })
     );
-    assert_eq!(before.marking.0, vec![u32::MAX]);
+    assert_eq!(before.marking.0, vec![u64::MAX]);
 }
 
 #[test]
