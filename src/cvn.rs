@@ -58,10 +58,8 @@ impl CvnNet {
     pub fn capacity_of(&self, place: PlaceId) -> Option<usize> {
         match &self.place(place)?.kind {
             PlaceKind::Resource(ResourceType::Mutex) => Some(1),
-            PlaceKind::Resource(ResourceType::RwLock { max_readers }) => {
-                Some(*max_readers as usize)
-            }
-            PlaceKind::Resource(ResourceType::Semaphore { count }) => Some(*count as usize),
+            PlaceKind::Resource(ResourceType::RwLock { max_readers }) => Some(*max_readers),
+            PlaceKind::Resource(ResourceType::Semaphore { count }) => Some(*count),
             _ => None,
         }
     }

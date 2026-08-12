@@ -34,8 +34,8 @@ pub enum ControlSub {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ResourceType {
     Mutex,
-    RwLock { max_readers: u32 },
-    Semaphore { count: u32 },
+    RwLock { max_readers: usize },
+    Semaphore { count: usize },
     Channel,
     Condvar,
 }
