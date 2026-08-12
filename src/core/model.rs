@@ -17,7 +17,6 @@ pub enum Multiplicity {
 pub enum RoleTag {
     Control,
     Resource,
-    Terminal,
     Other(Symbol),
 }
 

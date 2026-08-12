@@ -26,7 +26,7 @@ core::NetModel  -----> runtime::State / Marking containers
 - `core`: declarative net structure, sorts, values, tokens, patterns, terms, guards, actions, and model validation.
 - `domain`: value interpretation and pattern matching. `ConcreteDomain` is the baseline domain; other domains can implement `Domain` for abstract values such as three-valued logic or clock constraints.
 - `runtime`: generic state, P/T marking, colored marking, and runtime errors. Time is a type parameter rather than a hard-coded field type.
-- `semantics`: the `Semantics` contract plus capability traits for timed, priority, and partial-order semantics.
+- `semantics`: the generic `Semantics` contract, the concrete `PtSemantics` weighted P/T adapter, and capability traits for timed, priority, and partial-order semantics.
 - `ids`: stable index-based place, transition, sort, and function identifiers.
 
 `RoleTag` is metadata for frontends and analyses. It does not define firing semantics. A control-flow location, mutex, condition variable, semaphore, or async task state can be represented by the model's sorts, token values, arcs, and annotations without adding a new core net type.

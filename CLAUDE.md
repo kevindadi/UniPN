@@ -30,7 +30,7 @@ The public boundary is `src/lib.rs`, which exposes five layers:
 - `core`: declarative `NetModel`, place/transition declarations, input/output/read/inhibitor/reset arcs, sorts, typed tokens, values, patterns, terms, guards, actions, and model-reference validation.
 - `domain`: `Domain` defines how a value domain evaluates terms, evaluates guards, and matches patterns. `ConcreteDomain` is the baseline implementation; abstract domains can provide alternate value and three-valued interpretations.
 - `runtime`: generic `RuntimeState<M, G, T>`, P/T markings, colored typed-token multisets, and runtime errors. Time remains a state type parameter rather than a fixed implementation choice.
-- `semantics`: the generic `Semantics` contract and separate timed, priority, and partial-order capability traits. Concrete firing engines can implement these interfaces without changing the IR.
+- `semantics`: the generic `Semantics` contract, the concrete `PtSemantics` weighted P/T adapter, and separate timed, priority, and partial-order capability traits. Concrete firing engines can implement these interfaces without changing the IR.
 - `ids`: stable place, transition, sort, and function identifiers shared by the other layers.
 
 `RoleTag` is analysis/frontend metadata only. It does not define firing behavior; control-flow locations and shared resources are represented through places, sorts, token values, arcs, expressions, and future annotations.

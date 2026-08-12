@@ -1,13 +1,11 @@
-use unipn::core::expr::{ActionExpr, GuardExpr, Pattern, Term};
+use unipn::core::expr::{GuardExpr, Pattern, Term};
 use unipn::core::model::{
     ArcDecl, InhibitorArc, InputArc, ModelError, Multiplicity, NetModel, OutputArc, PlaceDecl,
     ReadArc, ResetArc, RoleTag, TimingSpec, TransitionDecl,
 };
 use unipn::core::sort::Sort;
 use unipn::core::value::{Token, Value};
-use unipn::{
-    Execution, PlaceId, PtMarking, PtSemantics, PtState, RuntimeError, Semantics, TransitionId,
-};
+use unipn::{PlaceId, PtMarking, PtSemantics, PtState, RuntimeError, Semantics, TransitionId};
 
 fn place(id: usize) -> PlaceDecl {
     PlaceDecl {
@@ -293,4 +291,4 @@ fn pt_semantics_does_not_execute_arc_expressions() {
 }
 
 #[allow(dead_code)]
-fn _keep_imports(_: ActionExpr, _: Execution<PtState>, _: RoleTag) {}
+fn _keep_imports(_: RoleTag) {}
