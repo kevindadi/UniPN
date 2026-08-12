@@ -99,6 +99,18 @@ pub enum PtModelError {
     },
     #[error("place {place} has an invalid capacity of zero")]
     ZeroCapacity { place: PlaceId },
+    #[error("{kind:?} arcs on {transition} at {place} have overflowing total weight")]
+    ArcWeightOverflow {
+        place: PlaceId,
+        transition: TransitionId,
+        kind: PtArcKind,
+    },
+    #[error("place {place} starts with {tokens} tokens, exceeding capacity {capacity}")]
+    InitialCapacityExceeded {
+        place: PlaceId,
+        tokens: Weight,
+        capacity: Weight,
+    },
     #[error("metadata does not match the number of places or transitions")]
     MetadataLengthMismatch,
     #[error("invalid exploration configuration: max_states must be greater than zero")]
@@ -219,6 +231,15 @@ impl PtNet {
             if place.capacity == Some(0) {
                 return Err(PtModelError::ZeroCapacity { place: place.id });
             }
+            if let Some(capacity) = place.capacity
+                && place.initial > capacity
+            {
+                return Err(PtModelError::InitialCapacityExceeded {
+                    place: place.id,
+                    tokens: place.initial,
+                    capacity,
+                });
+            }
         }
         for (index, transition) in self.transitions.iter().enumerate() {
             if transition.id.index() != index {
@@ -238,6 +259,20 @@ impl PtNet {
                     transition: arc.transition,
                     kind: arc.kind,
                 });
+            }
+        }
+        for transition in &self.transitions {
+            for kind in [PtArcKind::Input, PtArcKind::Output] {
+                let mut totals = Vec::new();
+                for arc in self.arcs_for(transition.id).filter(|arc| arc.kind == kind) {
+                    add_total(&mut totals, arc.place, arc.weight).map_err(|_| {
+                        PtModelError::ArcWeightOverflow {
+                            place: arc.place,
+                            transition: transition.id,
+                            kind,
+                        }
+                    })?;
+                }
             }
         }
         Ok(())
@@ -280,14 +315,19 @@ impl PtNet {
                 );
             }
         }
+        let mut outputs = Vec::new();
         for arc in self.arcs_for(transition) {
             if arc.kind == PtArcKind::Output {
-                let current = next.tokens(arc.place);
-                let produced = current
-                    .checked_add(arc.weight)
-                    .ok_or(PtExecutionError::ArithmeticOverflow(arc.place))?;
-                next.set(arc.place, self.apply_capacity(arc.place, produced)?);
+                add_total(&mut outputs, arc.place, arc.weight)
+                    .map_err(|_| PtExecutionError::ArithmeticOverflow(arc.place))?;
             }
+        }
+        for (place, weight) in outputs {
+            let current = next.tokens(place);
+            let produced = current
+                .checked_add(weight)
+                .ok_or(PtExecutionError::ArithmeticOverflow(place))?;
+            next.set(place, self.apply_capacity(place, produced)?);
         }
         for arc in self.arcs_for(transition) {
             if arc.kind == PtArcKind::Reset {
@@ -320,7 +360,11 @@ impl PtNet {
         let mut input_totals = Vec::new();
         for arc in self.arcs_for(transition) {
             match arc.kind {
-                PtArcKind::Input => add_total(&mut input_totals, arc.place, arc.weight),
+                PtArcKind::Input => {
+                    if add_total(&mut input_totals, arc.place, arc.weight).is_err() {
+                        return false;
+                    }
+                }
                 PtArcKind::Read => {
                     if marking.tokens(arc.place) < arc.weight {
                         return false;
@@ -367,12 +411,17 @@ impl PtNet {
     }
 }
 
-fn add_total(totals: &mut Vec<(PlaceId, Weight)>, place: PlaceId, weight: Weight) {
-    if let Some((_, total)) = totals.iter_mut().find(|(candidate, _)| *candidate == place) {
-        *total = total.saturating_add(weight);
+fn add_total(
+    totals: &mut Vec<(PlaceId, Weight)>,
+    place: PlaceId,
+    weight: Weight,
+) -> Result<(), ()> {
+    if let Some((_, total)) = totals.iter_mut().find(|candidate| candidate.0 == place) {
+        *total = total.checked_add(weight).ok_or(())?;
     } else {
         totals.push((place, weight));
     }
+    Ok(())
 }
 
 impl From<PtExecutionError> for RuntimeError {

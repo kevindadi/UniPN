@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use crate::bug::{PlaceMetadata, TransitionMetadata};
+use crate::bug::{BugNet, PlaceMetadata, TransitionMetadata};
 use crate::ids::{PlaceId, TransitionId};
 use crate::pt::{PtArc, PtExecutionError, PtNet};
 use crate::runtime::PtMarking;
@@ -87,10 +87,7 @@ impl PtStateGraph {
     ) -> Result<Self, PtExecutionError> {
         if config.max_states == 0 {
             return Err(PtExecutionError::Model(
-                crate::pt::PtModelError::InvalidMarkingLength {
-                    expected: 1,
-                    actual: 0,
-                },
+                crate::pt::PtModelError::InvalidConfiguration,
             ));
         }
         net.validate()?;
@@ -182,6 +179,18 @@ impl PtStateGraph {
         Ok(graph)
     }
 
+    pub fn explore_bug_net(
+        bug_net: &BugNet,
+        config: PtStateGraphConfig,
+    ) -> Result<Self, PtExecutionError> {
+        bug_net.validate()?;
+        Self::explore(
+            &bug_net.net,
+            Some((&bug_net.places, &bug_net.transitions)),
+            config,
+        )
+    }
+
     pub fn state(&self, id: PtStateId) -> Option<&PtState> {
         self.states.get(id.0)
     }
@@ -195,9 +204,7 @@ impl PtStateGraph {
     }
 
     pub fn path_to(&self, target: PtStateId) -> Option<Vec<&PtEdge>> {
-        if self.state(target).is_none() {
-            return None;
-        }
+        self.state(target)?;
         let mut path = Vec::new();
         let mut current = target;
         while current != self.initial {
