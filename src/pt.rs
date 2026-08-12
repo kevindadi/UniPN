@@ -61,18 +61,38 @@ pub struct UnsafeOp {
 /// ConcBugDect transition classification.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TransitionType {
-    Start { thread: u64 },
+    Start {
+        thread: u64,
+    },
     Goto,
     Switch,
-    Return { thread: u64 },
-    Lock { resource: u64 },
-    Unlock { resource: u64 },
-    RwLockRead { resource: u64 },
-    RwLockWrite { resource: u64 },
-    Wait { resource: u64 },
-    Notify { resource: u64 },
-    Spawn { thread: u64 },
-    Join { thread: u64 },
+    Return {
+        thread: u64,
+    },
+    Lock {
+        resource: u64,
+    },
+    Unlock {
+        resource: u64,
+    },
+    RwLockRead {
+        resource: u64,
+    },
+    RwLockWrite {
+        resource: u64,
+    },
+    Wait {
+        resource: u64,
+    },
+    Notify {
+        resource: u64,
+    },
+    Spawn {
+        thread: u64,
+    },
+    Join {
+        thread: u64,
+    },
     UnsafeRead(UnsafeOp),
     UnsafeWrite(UnsafeOp),
     UnsafeAccess(Vec<UnsafeOp>),
@@ -191,9 +211,7 @@ impl PtNet {
         for arc in self.arcs_for(transition) {
             match arc.direction {
                 ArcDir::Input => {
-                    if let Some((_, total)) =
-                        required.iter_mut().find(|(p, _)| *p == arc.place)
-                    {
+                    if let Some((_, total)) = required.iter_mut().find(|(p, _)| *p == arc.place) {
                         *total = total.checked_add(arc.weight).unwrap_or(usize::MAX);
                     } else {
                         required.push((arc.place, arc.weight));

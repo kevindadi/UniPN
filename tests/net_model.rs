@@ -4,8 +4,8 @@ use unipn::model::{ControlSub, PlaceKind, ResourceType, TransitionKind};
 use unipn::net::{ArcDir, Marking};
 use unipn::pt::{CapacityMode, PlaceType, PtPlaceKind, PtTransitionKind, TransitionType};
 use unipn::{
-    CvnBuilder, CvnNet, PlaceId, PtNet, TimedNet, TimedPlaceKind, TimedTransitionKind,
-    TimeInterval, TransitionId,
+    CvnBuilder, CvnNet, PlaceId, PtNet, TimeInterval, TimedNet, TimedPlaceKind,
+    TimedTransitionKind, TransitionId,
 };
 
 // ── P/T net ──────────────────────────────────────────────────────────────
@@ -69,14 +69,21 @@ fn pt_read_inhibitor_reset_arcs() {
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p, t, ArcDir::Read, 1, ());
     net.add_arc(q, t, ArcDir::Reset, 1, ());
-    net.add_arc(p, t, ArcDir::Output, 1, ());
 
-    // Read arc requires p >= 1, reset empties q.
+    // Read arc requires p >= 1 without consuming; reset empties q.
     let marking = Marking::new(vec![1, 5]);
     assert!(net.enabled(&marking).contains(&t));
     let fired = net.fire(&marking, t).unwrap();
-    assert_eq!(fired.tokens(p), 1); // read + output → still 1
+    assert_eq!(fired.tokens(p), 1); // read is non-destructive
     assert_eq!(fired.tokens(q), 0); // reset
+
+    // Inhibitor arc blocks when the place holds enough tokens.
+    let mut net2 = PtNet::new();
+    let p2 = net2.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
+    let t2 = net2.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
+    net2.add_arc(p2, t2, ArcDir::Inhibitor, 1, ());
+    assert!(net2.enabled(&Marking::new(vec![0])).contains(&t2));
+    assert!(!net2.enabled(&Marking::new(vec![1])).contains(&t2));
 }
 
 // ── CVN net ──────────────────────────────────────────────────────────────
@@ -141,7 +148,13 @@ fn cvn_resource_capacity_blocks_second_lock() {
 #[test]
 fn timed_net_model_builds() {
     let mut net = TimedNet::new();
-    let p = net.add_place("cpu", TimedPlaceKind { capacity: 1, saturate: false });
+    let p = net.add_place(
+        "cpu",
+        TimedPlaceKind {
+            capacity: 1,
+            saturate: false,
+        },
+    );
     let t = net.add_transition(
         "exec",
         TimedTransitionKind {

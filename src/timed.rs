@@ -53,7 +53,8 @@ impl TimeInterval {
     pub fn is_valid(&self) -> bool {
         self.earliest >= 0
             && (self.latest == INF || self.latest >= self.earliest)
-            && (self.effective_latest() == INF || self.effective_earliest() <= self.effective_latest())
+            && (self.effective_latest() == INF
+                || self.effective_earliest() <= self.effective_latest())
     }
 }
 

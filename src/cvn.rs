@@ -35,7 +35,9 @@ impl CvnNet {
     pub fn capacity_of(&self, place: PlaceId) -> Option<usize> {
         match &self.place(place)?.kind {
             PlaceKind::Resource(ResourceType::Mutex) => Some(1),
-            PlaceKind::Resource(ResourceType::RwLock { max_readers }) => Some(*max_readers as usize),
+            PlaceKind::Resource(ResourceType::RwLock { max_readers }) => {
+                Some(*max_readers as usize)
+            }
             PlaceKind::Resource(ResourceType::Semaphore { count }) => Some(*count as usize),
             _ => None,
         }
@@ -53,7 +55,9 @@ impl CvnNet {
     pub fn is_thread_terminal(&self, place: PlaceId) -> bool {
         matches!(
             self.place(place).map(|p| &p.kind),
-            Some(PlaceKind::Control(ControlSub::ThreadEnd | ControlSub::FunctionEnd))
+            Some(PlaceKind::Control(
+                ControlSub::ThreadEnd | ControlSub::FunctionEnd
+            ))
         )
     }
 
@@ -120,7 +124,8 @@ impl NetLike for CvnNet {
 
         for arc in self.arcs_of(transition, ArcDir::Input) {
             let current = next.marking.tokens(arc.place);
-            next.marking.set(arc.place, current.checked_sub(arc.weight)?);
+            next.marking
+                .set(arc.place, current.checked_sub(arc.weight)?);
         }
 
         for arc in self.arcs_of(transition, ArcDir::Output) {
@@ -135,7 +140,8 @@ impl NetLike for CvnNet {
 
             if let CvnArcKind::Update(update) = &arc.kind {
                 for (var, expr) in update {
-                    next.extra.insert(var.clone(), eval_expr(expr, &state.extra));
+                    next.extra
+                        .insert(var.clone(), eval_expr(expr, &state.extra));
                 }
             }
         }
@@ -149,16 +155,11 @@ impl NetLike for CvnNet {
 }
 
 /// Chain-style CVN builder: produces the net plus its initial state.
+#[derive(Default)]
 pub struct CvnBuilder {
     net: CvnNet,
     marking: Vec<usize>,
     vars: VarStore,
-}
-
-impl Default for CvnBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl CvnBuilder {
@@ -192,7 +193,8 @@ impl CvnBuilder {
         } else {
             CvnArcKind::Guard(guard)
         };
-        self.net.add_arc(place, transition, ArcDir::Input, weight, kind);
+        self.net
+            .add_arc(place, transition, ArcDir::Input, weight, kind);
         self
     }
 
@@ -204,7 +206,8 @@ impl CvnBuilder {
         update: Option<VarUpdate>,
     ) -> &mut Self {
         let kind = update.map_or(CvnArcKind::Plain, CvnArcKind::Update);
-        self.net.add_arc(place, transition, ArcDir::Output, weight, kind);
+        self.net
+            .add_arc(place, transition, ArcDir::Output, weight, kind);
         self
     }
 
