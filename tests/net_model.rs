@@ -2,7 +2,7 @@ use unipn::analysis::{AnalysisConfig, NetLike, SearchStrategy, explore, find_dea
 use unipn::expr::{BoolExpr, CmpOp, Expr, Val, VarUpdate};
 use unipn::model::{ControlSub, PlaceKind, ResourceType, TransitionKind};
 use unipn::net::{ArcDir, Marking};
-use unipn::pt::{CapacityMode, PlaceType, PtPlaceKind, PtTransitionKind, TransitionType};
+use unipn::pt::{PlaceType, PtPlaceKind, PtTransitionKind, TransitionType};
 use unipn::{
     CvnBuilder, CvnNet, PlaceId, PtNet, TimeInterval, TimedNet, TimedPlaceKind,
     TimedTransitionKind, TransitionId,
@@ -39,24 +39,15 @@ fn pt_net_fires_and_reports_deadlock_via_caller_predicate() {
 }
 
 #[test]
-fn pt_capacity_reject_and_saturate() {
+fn pt_capacity_saturates() {
     let mut net = PtNet::new();
     let p = net.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
-    let kind = PtPlaceKind {
-        place_type: PlaceType::BasicBlock,
-        span: None,
-        capacity: Some(1),
-        capacity_mode: CapacityMode::Reject,
-    };
-    net.places[0].kind = kind;
+    net.places[0].kind.capacity = Some(1);
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p, t, ArcDir::Output, 1, ());
 
-    // A transition producing into a full Reject-capacity place is not fireable.
+    // Producing into a full place clamps to capacity (ConcBugDect semantics).
     let marking = Marking::new(vec![1]);
-    assert!(net.fire(&marking, t).is_none());
-
-    net.places[0].kind.capacity_mode = CapacityMode::Saturate;
     let fired = net.fire(&marking, t).unwrap();
     assert_eq!(fired.tokens(p), 1);
 }

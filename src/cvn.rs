@@ -150,7 +150,8 @@ impl CvnNet {
             if let CvnArcKind::Update(update) = &arc.kind {
                 for (var, expr) in update {
                     if let Some((lo, hi)) = state.extra.domains.get(var)
-                        && let Val::Concrete(ConcreteVal::Int(v)) = eval_expr(expr, &state.extra.vars)
+                        && let Val::Concrete(ConcreteVal::Int(v)) =
+                            eval_expr(expr, &state.extra.vars)
                         && (v < *lo || v > *hi)
                     {
                         return false;

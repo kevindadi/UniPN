@@ -2,7 +2,8 @@
 //!
 //! `PtNet` is [`Net`] instantiated with ConcBugDect's place/transition metadata
 //! kinds and no arc kind (the `ArcDir` already distinguishes input/output/read/
-//! inhibitor/reset). Weight and token counts are `usize`.
+//! inhibitor/reset). The kinds mirror ConcBugDect's `net/structure.rs`, with
+//! the rustc-private `AliasId` decoupled to plain integers.
 
 use serde::{Deserialize, Serialize};
 
@@ -10,50 +11,42 @@ use crate::analysis::NetLike;
 use crate::ids::{PlaceId, TransitionId};
 use crate::net::{ArcDir, Marking, Net};
 
-/// Capacity overflow policy.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum CapacityMode {
-    /// A transition that would overflow the place is not fireable.
-    #[default]
-    Reject,
-    /// Overflow is clamped to the place's capacity.
-    Saturate,
-}
-
 /// ConcBugDect place classification.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum PlaceType {
-    Resource,
+    Resources,
     FunctionStart,
     FunctionEnd,
     BasicBlock,
-    Other(String),
-}
-
-/// A source location (file/line/column).
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SourceLocation {
-    pub file: String,
-    pub line: u32,
-    pub column: u32,
 }
 
 /// Atomic memory ordering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AtomicOrdering {
     Relaxed,
-    Acquire,
     Release,
+    Acquire,
     AcqRel,
     SeqCst,
+}
+
+/// A decoupled pointer-analysis alias identifier (ConcBugDect's rustc-private
+/// `AliasId`, reduced to plain integers).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AliasId {
+    pub instance_id: usize,
+    pub local: usize,
+    pub array_index: Option<u64>,
+    pub field: Option<u32>,
 }
 
 /// An unsafe memory access.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UnsafeOp {
-    pub alias: u64,
+    /// Unsafe alias-group id.
+    pub alias: usize,
     pub is_write: bool,
-    pub span: Option<SourceLocation>,
+    pub span: String,
     pub basic_block: usize,
     pub ty: String,
 }
@@ -61,80 +54,54 @@ pub struct UnsafeOp {
 /// ConcBugDect transition classification.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TransitionType {
-    Start {
-        thread: u64,
-    },
+    Start(usize),
     Goto,
     Switch,
-    Return {
-        thread: u64,
-    },
-    Lock {
-        resource: u64,
-    },
-    Unlock {
-        resource: u64,
-    },
-    RwLockRead {
-        resource: u64,
-    },
-    RwLockWrite {
-        resource: u64,
-    },
-    Wait {
-        resource: u64,
-    },
-    Notify {
-        resource: u64,
-    },
-    Spawn {
-        thread: u64,
-    },
-    Join {
-        thread: u64,
-    },
-    UnsafeRead(UnsafeOp),
-    UnsafeWrite(UnsafeOp),
+    Return(usize),
+    Unlock(usize),
+    DropRead(usize),
+    DropWrite(usize),
+    Drop,
+    Assert,
+
+    UnsafeRead(usize, String, usize, String),
+    UnsafeWrite(usize, String, usize, String),
+    /// One merged transition per basic block summarizing every unsafe access.
     UnsafeAccess(Vec<UnsafeOp>),
-    AtomicLoad {
-        alias: u64,
-        ordering: AtomicOrdering,
-        thread: u64,
-    },
-    AtomicStore {
-        alias: u64,
-        ordering: AtomicOrdering,
-        thread: u64,
-    },
-    AtomicCmpXchg {
-        alias: u64,
-        success: AtomicOrdering,
-        failure: AtomicOrdering,
-        thread: u64,
-    },
+
+    Lock(usize),
+    RwLockRead(usize),
+    RwLockWrite(usize),
+    Notify(usize),
+    Wait,
+
+    AtomicLoad(AliasId, AtomicOrdering, String, usize),
+    AtomicStore(AliasId, AtomicOrdering, String, usize),
+    AtomicCmpXchg(AliasId, AtomicOrdering, AtomicOrdering, String, usize),
+    Spawn(String),
+    Join(String),
+
     Function,
     Normal,
     Inhibitor,
     Reset,
-    Other(String),
 }
 
 /// ConcBugDect place attributes.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PtPlaceKind {
     pub place_type: PlaceType,
-    pub span: Option<SourceLocation>,
+    pub span: String,
+    /// `None` = unbounded.
     pub capacity: Option<usize>,
-    pub capacity_mode: CapacityMode,
 }
 
 impl PtPlaceKind {
     pub fn new(place_type: PlaceType) -> Self {
         Self {
             place_type,
-            span: None,
+            span: String::new(),
             capacity: None,
-            capacity_mode: CapacityMode::Reject,
         }
     }
 }
@@ -143,17 +110,11 @@ impl PtPlaceKind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PtTransitionKind {
     pub transition_type: TransitionType,
-    pub span: Option<SourceLocation>,
-    pub priority: Option<u32>,
 }
 
 impl PtTransitionKind {
     pub fn new(transition_type: TransitionType) -> Self {
-        Self {
-            transition_type,
-            span: None,
-            priority: None,
-        }
+        Self { transition_type }
     }
 }
 
@@ -193,7 +154,12 @@ impl NetLike for PtNet {
         for arc in self.arcs_of(transition, ArcDir::Output) {
             let current = next.tokens(arc.place);
             let produced = current.checked_add(arc.weight)?;
-            next.set(arc.place, self.apply_capacity(arc.place, produced)?);
+            // Saturating capacity clamp (ConcBugDect's firing semantics).
+            let clamped = self
+                .place(arc.place)
+                .and_then(|p| p.kind.capacity)
+                .map_or(produced, |cap| produced.min(cap));
+            next.set(arc.place, clamped);
         }
 
         for arc in self.arcs_of(transition, ArcDir::Reset) {
@@ -234,25 +200,6 @@ impl PtNet {
             .into_iter()
             .all(|(place, count)| state.tokens(place) >= count)
     }
-
-    fn apply_capacity(&self, place: PlaceId, tokens: usize) -> Option<usize> {
-        let place = self.place(place)?;
-        let Some(capacity) = place.kind.capacity else {
-            return Some(tokens);
-        };
-        if tokens <= capacity {
-            return Some(tokens);
-        }
-        match place.kind.capacity_mode {
-            CapacityMode::Reject => None,
-            CapacityMode::Saturate => Some(capacity),
-        }
-    }
-}
-
-/// Convenience: build a P/T net's initial marking from per-place token counts.
-pub fn initial_marking<P>(places: &[P], tokens: impl Fn(usize) -> usize) -> Marking {
-    Marking::new((0..places.len()).map(tokens).collect())
 }
 
 /// Convenience: build a marking directly from a slice of counts.

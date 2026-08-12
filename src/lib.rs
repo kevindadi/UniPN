@@ -30,8 +30,8 @@ pub use ids::{PlaceId, TransitionId};
 pub use model::{ControlSub, PlaceKind, ResourceType, TransitionKind};
 pub use net::{Arc, ArcDir, Marking, Net, Place, State, Transition};
 pub use pt::{
-    AtomicOrdering, CapacityMode, PlaceType, PtNet, PtPlaceKind, PtTransitionKind, SourceLocation,
-    TransitionType, UnsafeOp, initial_marking, marking,
+    AliasId, AtomicOrdering, PlaceType, PtNet, PtPlaceKind, PtTransitionKind, TransitionType,
+    UnsafeOp, marking,
 };
 pub use timed::{
     CONTROL_TRANSITION_CORE, INF, TimeInterval, TimedNet, TimedPlaceKind, TimedTransitionKind,
