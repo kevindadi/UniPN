@@ -4,47 +4,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## Project
 
-UniPN is a Rust library implementing a shared, extensible Petri-net core for multiple frontends and analysis consumers. The crate uses Rust edition 2024 and exposes a public API from `src/lib.rs`.
+UniPN is a Rust edition 2024 library for representing extensible Petri-net models. It is library-only: it provides a declarative IR, typed values and expressions, runtime containers, domain interfaces, and semantic capability traits. It does not provide a CLI, execution language, reachability analyzer, or MIR lowering implementation yet.
 
 ## Common Commands
 
 Run from the repository root:
 
 ```bash
-cargo check
-cargo test
-cargo test --features timed
-cargo test --no-default-features
-cargo test --test basic
-cargo test --test deadlock mutex_deadlock_detected
 cargo fmt --all
 cargo fmt --all -- --check
+cargo check --all-targets --all-features
+cargo test --all-features
+cargo test --all-features --test core
+cargo test --all-features --test core concrete_domain_matches_and_evaluates
+cargo clippy --all-targets --all-features -- -D warnings
+cargo doc --no-deps
 ```
 
-`invariants` is enabled by default. The `timed` feature is opt-in; `--no-default-features` excludes invariant code and verifies the feature-gated build. The test suite is organized as integration-test binaries under `tests/`, so use `--test <file-stem>` to run one file or append a test-name filter to run one test.
-
-At the time this file was created, all three documented `cargo test` variants passed. `cargo fmt --all -- --check` reported pre-existing formatting differences in source and test files; use `cargo fmt --all` when formatting changes are intended.
+The crate currently has no feature flags. Integration tests live in `tests/`; use `--test <file-stem>` to select a test binary and append a test-name filter for one test.
 
 ## Architecture
 
-The core boundary is the object-safe `NetLike` trait in `src/netlike.rs`. Shared algorithms accept `&dyn NetLike`, so a custom frontend can provide places, transitions, weighted pre/post arcs, and an initial state while inheriting pure P/T implementations of transition enabling and firing. Frontends with guards, variable updates, capacities, or other semantics override those runtime methods and can supply semantic predicates such as `is_thread_terminal`, `is_wait_point`, and `is_resource`.
+The public boundary is `src/lib.rs`, which exposes five layers:
 
-`NetBuilder` in `src/builder.rs` constructs the default `Net` implementation in `src/net.rs`. `Net` stores transition incidence in `storage::Incidence`, a sparse column-oriented representation of the pre/post matrices. Its firing path operates on sparse arcs and optionally evaluates input guards, output variable updates, capacities, and bounded integer domains. `State` combines a dense token marking with an optional ordered variable store; state equality and hashing determine reachability-state identity.
+- `core`: declarative `NetModel`, place/transition declarations, input/output/read/inhibitor/reset arcs, sorts, typed tokens, values, patterns, terms, guards, actions, and model-reference validation.
+- `domain`: `Domain` defines how a value domain evaluates terms, evaluates guards, and matches patterns. `ConcreteDomain` is the baseline implementation; abstract domains can provide alternate value and three-valued interpretations.
+- `runtime`: generic `RuntimeState<M, G, T>`, P/T markings, colored typed-token multisets, and runtime errors. Time remains a state type parameter rather than a fixed implementation choice.
+- `semantics`: the generic `Semantics` contract and separate timed, priority, and partial-order capability traits. Concrete firing engines can implement these interfaces without changing the IR.
+- `ids`: stable place, transition, sort, and function identifiers shared by the other layers.
 
-Model kinds in `src/model.rs` are annotations used by default predicates, diagnostics, and DOT styling. They do not themselves change firing semantics; arc structure and any `NetLike` overrides do. `src/expr.rs` contains the optional data model for values, expressions, three-valued guards, and variable updates.
+`RoleTag` is analysis/frontend metadata only. It does not define firing behavior; control-flow locations and shared resources are represented through places, sorts, token values, arcs, expressions, and future annotations.
 
-`src/analysis/` contains consumers of the `NetLike` contract:
+## Scope Boundaries
 
-- `explore.rs` builds a standalone reachability graph using BFS, DFS, or sleep-set partial-order reduction, with a configurable state limit and deadlock counterexamples.
-- `deadlock.rs`, `dead_transition.rs`, and `conflict.rs` derive behavioral diagnostics from a net or reachability graph.
-- `invariants.rs` is compiled only with the default `invariants` feature and computes exact place/transition invariants from the dense effect matrix.
-- `timed.rs` and the root `timed.rs` are feature-gated reservation types and APIs for future timed/state-class analysis; the timed explorer is not implemented yet.
+Keep the crate library-only. Do not restore the removed legacy `NetLike`, `NetBuilder`, matrix-storage, analysis, export, test-generation, or timed-reservation APIs. Do not add a placeholder semantics implementation that returns fake successful results; unsupported execution behavior should remain an explicit boundary until a concrete semantics layer is designed.
 
-`src/export.rs` exports any `NetLike` implementation as Graphviz DOT. `src/testgen.rs` consumes reachability graphs to extract schedules; its broader criteria-based test generation API is currently reserved and returns no generated cases. Integration tests in `tests/` exercise firing, exploration, deadlocks, dead transitions, conflicts, POR, DOT export, invariants, and custom `NetLike` implementations. `tests/common/mod.rs` contains reusable fixture nets.
-
-## Feature Flags
-
-- `invariants` (default): enables exact invariant computation and its optional numeric dependencies.
-- `timed` (off by default): enables timing/priority model fields and timed analysis APIs.
-
-When changing feature-gated code, run the default, `--features timed`, and `--no-default-features` test commands.
+The current core intentionally stops short of complete colored-net firing, user-defined function execution, MIR lowering, timed DBM analysis, reachability, deadlock detection, and verification algorithms. Changes should preserve the separation between declarative model data, value domains, runtime containers, and semantic capabilities.

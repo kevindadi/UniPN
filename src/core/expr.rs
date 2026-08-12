@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::sort::{FuncId, Symbol};
+use crate::ids::{FuncId, Symbol};
+
 use super::value::Value;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

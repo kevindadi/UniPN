@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-use crate::ids::{PlaceId, TransitionId};
+use crate::ids::{PlaceId, SortId, Symbol, TransitionId};
 
 use super::expr::{ActionExpr, GuardExpr, Pattern, Term};
-use super::sort::{Sort, SortId, Symbol};
+use super::sort::Sort;
+use super::value::Token;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Multiplicity {
@@ -105,6 +107,23 @@ pub struct NetModel {
     pub transitions: Vec<TransitionDecl>,
     pub arcs: Vec<ArcDecl>,
     pub sorts: Vec<Sort>,
+    pub initial_marking: Vec<(PlaceId, Vec<Token>)>,
+}
+
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum ModelError {
+    #[error("place id {0} is not contiguous or does not match its declaration index")]
+    InvalidPlaceId(PlaceId),
+    #[error("transition id {0} is not contiguous or does not match its declaration index")]
+    InvalidTransitionId(TransitionId),
+    #[error("place {place} references missing sort {sort}")]
+    MissingPlaceSort { place: PlaceId, sort: SortId },
+    #[error("arc references missing place {0}")]
+    MissingArcPlace(PlaceId),
+    #[error("arc references missing transition {0}")]
+    MissingArcTransition(TransitionId),
+    #[error("initial marking references missing place {0}")]
+    MissingInitialPlace(PlaceId),
 }
 
 impl NetModel {
@@ -164,5 +183,45 @@ impl NetModel {
                 _ => None,
             })
             .collect()
+    }
+
+    pub fn validate(&self) -> Result<(), ModelError> {
+        for (index, place) in self.places.iter().enumerate() {
+            if place.id.index() != index {
+                return Err(ModelError::InvalidPlaceId(place.id));
+            }
+            if place.sort >= self.sorts.len() {
+                return Err(ModelError::MissingPlaceSort {
+                    place: place.id,
+                    sort: place.sort,
+                });
+            }
+        }
+        for (index, transition) in self.transitions.iter().enumerate() {
+            if transition.id.index() != index {
+                return Err(ModelError::InvalidTransitionId(transition.id));
+            }
+        }
+        for arc in &self.arcs {
+            let (transition, place) = match arc {
+                ArcDecl::Input { transition, arc } => (*transition, arc.place),
+                ArcDecl::Output { transition, arc } => (*transition, arc.place),
+                ArcDecl::Read { transition, arc } => (*transition, arc.place),
+                ArcDecl::Inhibitor { transition, arc } => (*transition, arc.place),
+                ArcDecl::Reset { transition, arc } => (*transition, arc.place),
+            };
+            if self.transition(transition).is_none() {
+                return Err(ModelError::MissingArcTransition(transition));
+            }
+            if self.place(place).is_none() {
+                return Err(ModelError::MissingArcPlace(place));
+            }
+        }
+        for (place, _) in &self.initial_marking {
+            if self.place(*place).is_none() {
+                return Err(ModelError::MissingInitialPlace(*place));
+            }
+        }
+        Ok(())
     }
 }

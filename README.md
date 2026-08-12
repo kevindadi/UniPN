@@ -1,116 +1,59 @@
-# UniPN — Unified Petri Net
+# UniPN
 
-A fast, extensible Petri net core shared by several frontends and analysis consumers:
+UniPN is a Rust library for representing extensible Petri-net models. It is intended to become the shared model layer for:
+
+- ordinary P/T nets from MIR-based concurrency analysis;
+- colored nets with typed tokens, arc patterns, guards, and actions;
+- timed and priority nets;
+- abstract verification nets with three-valued logic.
+
+The crate is library-only. It defines model data structures and extension interfaces; it does not contain a command-line tool, an execution language, or a complete reachability analyzer yet.
+
+## Architecture
 
 ```text
-Frontends (net building)          Core (matrix storage + trait)   Consumers (analysis)
-  ConcIR   ─┐                    Net (CSC incidence matrix)      deadlock / dead-transition / conflict
-  Rust MIR ┼─▶ NetLike ───────▶  explore (BFS/DFS/POR)           invariants
-  test intent┘   (object-safe)   deadlock / dead_transition       test-case generation (testgen)
-  time (PTPN) ─▶ Timed reserve   conflict / invariants / dot      timed / real-time scheduling
+frontend lowering
+      |
+      v
+core::NetModel  -----> runtime::State / Marking containers
+      |                         |
+      +--> core expressions     +--> semantics capabilities
+      |          |              |
+      v          v              v
+    sorts     domains       timed / priority / POR extensions
 ```
 
-## Design principles
+- `core`: declarative net structure, sorts, values, tokens, patterns, terms, guards, actions, and model validation.
+- `domain`: value interpretation and pattern matching. `ConcreteDomain` is the baseline domain; other domains can implement `Domain` for abstract values such as three-valued logic or clock constraints.
+- `runtime`: generic state, P/T marking, colored marking, and runtime errors. Time is a type parameter rather than a hard-coded field type.
+- `semantics`: the `Semantics` contract plus capability traits for timed, priority, and partial-order semantics.
+- `ids`: stable index-based place, transition, sort, and function identifiers.
 
-1. **Trait-first**: `NetLike` is the single contract (object-safe). Any net
-   (CVN, ConcBugDect MIR→PN, future test/timed nets) only needs to implement it
-   to be consumed by the shared algorithms. A **pure P/T net** only fills the
-   structural predicates (`pre_arcs` / `post_arcs` / `initial_state`);
-   `enabled_transitions` and `fire` use the trait's default implementations.
-2. **Matrix-backed**: the core `Net` stores the `Pre/Post` incidence as **CSC
-   sparse columns**, so the enabled/fire hot path is O(|arcs|) instead of
-   O(|P|·|T|); the dense `C = Post − Pre` matrix is only materialized when
-   linear algebra is needed (invariants etc.).
-3. **Semantics externalized**: `PlaceKind` / `TransitionKind` are only
-   annotations; semantics such as "thread terminal / wait point / resource" are
-   exposed through frontend predicates (`is_thread_terminal` / `is_wait_point` /
-   `is_resource`), not hardcoded in the common layer. `return` is a function
-   return, not thread end; spawn/join/branch are all arc-structure patterns.
-4. **Extensible**: `timed` / `invariants` are feature-gated extension slots.
+`RoleTag` is metadata for frontends and analyses. It does not define firing semantics. A control-flow location, mutex, condition variable, semaphore, or async task state can be represented by the model's sorts, token values, arcs, and annotations without adding a new core net type.
 
-## Quick start
+## Colored-net concepts
 
-```rust
-use unipn::analysis::{AnalysisConfig, explore};
-use unipn::expr::BoolExpr;
-use unipn::model::{ControlSub, PlaceKind, TransitionKind};
-use unipn::{NetBuilder, NetLike};
+A colored transition can be represented with:
 
-let mut b = NetBuilder::new();
-let p0 = b.add_place("p0", PlaceKind::Control(ControlSub::Statement));
-let p1 = b.add_place("p1", PlaceKind::Control(ControlSub::ThreadEnd));
-let t0 = b.add_transition("t0", TransitionKind::Sequential);
-b.add_input_arc(p0, t0, 1, BoolExpr::True);
-b.add_output_arc(t0, p1, 1, None);
-b.set_initial_tokens(p0, 1);
-let net = b.build();
+- an input arc `Pattern` that consumes and binds token values;
+- a transition `GuardExpr` that accepts or rejects a binding;
+- an `ActionExpr` for explicit environment updates;
+- output arc `Term` expressions that construct new token values.
 
-let rg = explore(&net, &AnalysisConfig::default());
-assert!(rg.deadlocks.is_empty());
-```
+Read, inhibitor, and reset arcs are part of the declarative model so later semantics can choose the appropriate behavior without changing the IR.
 
-### Extending with a custom net
+## Current scope
 
-```rust
-impl NetLike for MyNet {
-    fn num_places(&self) -> usize { /* ... */ }
-    fn num_transitions(&self) -> usize { /* ... */ }
-    fn pre_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> { /* ... */ }
-    fn post_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> { /* ... */ }
-    fn initial_state(&self) -> State { /* ... */ }
-    // enabled_transitions / fire use the default pure P/T implementations;
-    // frontends with guards override them as needed.
-}
-// The shared algorithms now work directly:
-let rg = explore(&my_net, &AnalysisConfig::default());
-```
+The current release is the foundation for replacing the former P/T-specific implementation. It provides serializable model types, model-reference validation, concrete expression evaluation, typed token containers, and extension traits. CPN firing, MIR lowering, timed DBM analysis, and verification algorithms are intentionally left for subsequent layers.
 
-## Modules
-
-```
-src/
-├── ids.rs        PlaceId/TransitionId (index-based), Weight
-├── model.rs      PlaceKind / TransitionKind / Place / Transition (annotations)
-├── expr.rs       Val / Expr / BoolExpr (optional data model, for guards/updates)
-├── state.rs      Marking (dense vector) / VarStore / State
-├── storage.rs    CSC sparse-column Incidence + dense effect matrix C = Post − Pre
-├── netlike.rs    NetLike trait (object-safe) + pure P/T default implementations
-├── net.rs        Net: the matrix-backed net (optional guards/updates/capacities/var domains)
-├── builder.rs    NetBuilder
-├── analysis/
-│   ├── explore.rs          BFS / DFS / POR(sleep-set) → ReachabilityGraph
-│   ├── deadlock.rs         deadlock detection + blocked places
-│   ├── dead_transition.rs  behavioral dead transitions (OR-family aware)
-│   ├── conflict.rs         transition pairs sharing an input place (contention for testgen)
-│   ├── invariants.rs       place/transition invariants (feature `invariants`)
-│   └── timed.rs            state-class DBM time-analysis reserve (feature `timed`)
-├── export.rs       Graphviz DOT
-├── testgen.rs      reachability-graph paths → test-case schedules (pure consumer)
-└── timed.rs        time-extension types: StaticInterval / Priority / ClockClass
-```
-
-## Feature flags
-
-| Feature      | Default | Description |
-| ------------ | ------- | ----------- |
-| `invariants` | on      | place/transition invariants (Gaussian nullspace, exact BigInt) |
-| `timed`      | off     | time/priority extension (`Transition.timing/.priority`, `AnalysisMode::Timed`, PTPN state-class DBM bridge) |
-
-## Timed analysis (PTPN) reserve
-
-The `timed` feature introduces static time intervals `[dmin, dmax]`, fixed
-priorities and clock classes. The goal is to bridge
-[PTPN](https://github.com/kevindadi/PTPN): the unified net is exported (via an
-export bridge) as PTPN's `.ptpn` / TDG JSON, PTPN runs the state-class (DBM)
-reachability analysis, and the results come back. On the IR side only optional
-annotations are added; the core firing semantics is untouched.
-
-## Tests
+## Development
 
 ```bash
-cargo test
-cargo test --features timed
-cargo test --no-default-features
+cargo fmt --all
+cargo check --all-targets --all-features
+cargo test --all-features
+cargo clippy --all-targets --all-features -- -D warnings
+cargo doc --no-deps
 ```
 
 ## License
