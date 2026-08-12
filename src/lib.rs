@@ -21,9 +21,10 @@ pub mod pt;
 pub mod timed;
 
 pub use analysis::{
-    AnalysisConfig, NetLike, ReachabilityGraph, SearchStrategy, explore, find_deadlocks,
+    AnalysisConfig, Counterexample, FiringStep, NetLike, PropertyViolation, ReachabilityGraph,
+    SearchStrategy, explore, find_deadlocks,
 };
-pub use cvn::{CvnArcKind, CvnBuilder, CvnNet, CvnState, VarStore};
+pub use cvn::{CvnArcKind, CvnBuilder, CvnNet, CvnState, CvnTransition, VarStore};
 pub use expr::{BoolExpr, CmpOp, ConcreteVal, Expr, Op, Val, VarUpdate};
 pub use ids::{PlaceId, TransitionId};
 pub use model::{ControlSub, PlaceKind, ResourceType, TransitionKind};

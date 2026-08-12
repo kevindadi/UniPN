@@ -23,7 +23,7 @@ pub const CONTROL_TRANSITION_CORE: i32 = -1;
 // the metrics layer can report it. Reset at the start of each build.
 thread_local! {
     static OVERFLOW: RefCell<std::collections::BTreeSet<usize>> =
-        RefCell::new(std::collections::BTreeSet::new());
+        const { RefCell::new(std::collections::BTreeSet::new()) };
 }
 
 pub fn reset_overflow_recording() {

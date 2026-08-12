@@ -9,7 +9,7 @@
 
 pub mod timed;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
 use crate::ids::TransitionId;
@@ -77,6 +77,12 @@ impl<S> ReachabilityGraph<S> {
         self.edges.len()
     }
 
+    /// The set of transitions that fired on any edge of the graph (used for
+    /// dead-transition detection).
+    pub fn fired_transitions(&self) -> HashSet<TransitionId> {
+        self.edges.iter().map(|(_, _, t)| *t).collect()
+    }
+
     /// Reconstruct the firing sequence that reaches `target` from the initial
     /// state.
     pub fn trace_to(&self, target: usize) -> Vec<TransitionId> {
@@ -140,6 +146,35 @@ pub fn find_deadlocks<S>(
         .copied()
         .filter(|&i| is_deadlock(&graph.states[i]))
         .collect()
+}
+
+/// A single firing step in a counterexample trace.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FiringStep {
+    pub transition: TransitionId,
+    /// Anchoring back to the source (ConcIR sid / source line).
+    pub anchors: Vec<String>,
+}
+
+/// The kind of property violation a counterexample demonstrates.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PropertyViolation {
+    Deadlock,
+    DeadTransition {
+        transition: TransitionId,
+        anchors: Vec<String>,
+    },
+    GoalUnmet {
+        goal: String,
+    },
+}
+
+/// A counterexample: a firing sequence + final state + violation kind.
+#[derive(Clone, Debug)]
+pub struct Counterexample<S> {
+    pub kind: PropertyViolation,
+    pub trace: Vec<FiringStep>,
+    pub final_state: S,
 }
 
 struct Explorer<N: NetLike> {
