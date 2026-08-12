@@ -1,237 +1,280 @@
-use std::collections::VecDeque;
-use std::fmt;
+//! State-space exploration: BFS / DFS / partial-order reduction (sleep-set).
+//!
+//! Uses a standalone reachability-graph storage (no petgraph dependency):
+//! `states: Vec<State>` + `edges: Vec<(src, dst, transition)>`.
+//!
+//! The explorer is domain-neutral: it reports which states are *blocked* (no
+//! enabled transitions) and leaves deadlock classification to the caller
+//! (see [`super::find_deadlocks`]).
+
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::ids::TransitionId;
-use crate::runtime::RuntimeError;
-use crate::semantics::Semantics;
+use crate::netlike::NetLike;
+use crate::state::State;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SearchStrategy {
-    BreadthFirst,
-    DepthFirst,
-}
+use super::{AnalysisConfig, FiringStep, SearchStrategy};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ExploreConfig {
-    pub strategy: SearchStrategy,
-    pub max_states: usize,
-}
-
-impl Default for ExploreConfig {
-    fn default() -> Self {
-        Self {
-            strategy: SearchStrategy::BreadthFirst,
-            max_states: 10_000,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct StateId(pub usize);
-
-#[derive(Clone)]
-pub struct Edge<B> {
-    pub source: StateId,
-    pub target: StateId,
-    pub transition: TransitionId,
-    pub binding: B,
-}
-
-#[derive(Clone)]
-pub struct ReachabilityGraph<S, B> {
-    pub states: Vec<S>,
-    pub edges: Vec<Edge<B>>,
-    pub blocked: Vec<StateId>,
+/// Reachability graph.
+#[derive(Clone, Debug)]
+pub struct ReachabilityGraph {
+    pub states: Vec<State>,
+    pub edges: Vec<(usize, usize, TransitionId)>,
+    pub initial: usize,
+    /// Indices of states with no enabled transitions (candidate deadlocks).
+    /// Whether each one is a *real* deadlock is decided by the caller.
+    pub blocked: Vec<usize>,
     pub truncated: bool,
+    /// Predecessor link for trace reconstruction: `target → (source, transition,
+    /// anchors)`.
+    preds: HashMap<usize, (usize, TransitionId, Vec<String>)>,
 }
 
-impl<S, B> ReachabilityGraph<S, B> {
-    pub fn state(&self, id: StateId) -> Option<&S> {
-        self.states.get(id.0)
+impl ReachabilityGraph {
+    pub fn state_count(&self) -> usize {
+        self.states.len()
     }
 
-    pub fn outgoing(&self, source: StateId) -> impl Iterator<Item = &Edge<B>> {
-        self.edges.iter().filter(move |edge| edge.source == source)
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    /// The set of transitions that fired on any edge of the graph (used for
+    /// dead-transition detection).
+    pub fn fired_transitions(&self) -> HashSet<TransitionId> {
+        self.edges.iter().map(|(_, _, t)| *t).collect()
+    }
+
+    /// Reconstruct the firing sequence that reaches `target` from the initial
+    /// state.
+    pub fn trace_to(&self, target: usize) -> Vec<FiringStep> {
+        let mut path = Vec::new();
+        let mut current = target;
+        while let Some(&(parent, t, ref anchors)) = self.preds.get(&current) {
+            path.push(FiringStep {
+                transition: t,
+                anchors: anchors.clone(),
+            });
+            current = parent;
+        }
+        path.reverse();
+        path
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AnalysisError {
-    InvalidConfiguration {
-        max_states: usize,
-    },
-    Initial {
-        source: RuntimeError,
-    },
-    Enabled {
-        state: StateId,
-        source: RuntimeError,
-    },
-    Fire {
-        state: StateId,
-        transition: TransitionId,
-        source: RuntimeError,
-    },
+/// Explore the whole reachable state space.
+pub fn explore(net: &dyn NetLike, config: &AnalysisConfig) -> ReachabilityGraph {
+    if config.por {
+        return explore_por(net, config.max_states);
+    }
+    match config.strategy {
+        SearchStrategy::Bfs => explore_bfs(net, config.max_states),
+        SearchStrategy::Dfs => explore_dfs(net, config.max_states),
+    }
 }
 
-impl fmt::Display for AnalysisError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidConfiguration { max_states } => {
-                write!(f, "max_states must be greater than zero, got {max_states}")
+// ── BFS ──
+
+fn explore_bfs(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
+    let mut e = Explorer::new(net, max_states);
+    let initial = net.initial_state();
+    let (init_idx, _) = e.insert_state(initial).unwrap();
+    let mut queue = VecDeque::new();
+    queue.push_back(init_idx);
+
+    while let Some(idx) = queue.pop_front() {
+        let state = e.states[idx].clone();
+        let enabled = net.enabled_transitions(&state);
+        if enabled.is_empty() {
+            e.blocked.push(idx);
+            continue;
+        }
+        for t in enabled {
+            if let Ok(next) = net.fire(t, &state)
+                && let Some((target, is_new)) = e.insert_state(next)
+            {
+                e.record_edge(idx, target, t);
+                if is_new {
+                    queue.push_back(target);
+                }
             }
-            Self::Initial { source } => write!(f, "failed to create initial state: {source}"),
-            Self::Enabled { state, source } => {
-                write!(
-                    f,
-                    "failed to enumerate transitions from state {state:?}: {source}"
-                )
-            }
-            Self::Fire {
-                state,
-                transition,
-                source,
-            } => write!(
-                f,
-                "failed to fire transition {transition} from state {state:?}: {source}"
-            ),
         }
     }
+    e.finish()
 }
 
-impl std::error::Error for AnalysisError {}
+// ── DFS ──
 
-struct Worklist {
-    pending: VecDeque<StateId>,
-    strategy: SearchStrategy,
-}
+fn explore_dfs(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
+    let mut e = Explorer::new(net, max_states);
+    let initial = net.initial_state();
+    let (init_idx, _) = e.insert_state(initial).unwrap();
+    let mut stack = vec![init_idx];
 
-impl Worklist {
-    fn new(strategy: SearchStrategy, root: StateId) -> Self {
-        let mut pending = VecDeque::new();
-        pending.push_back(root);
-        Self { pending, strategy }
-    }
-
-    fn pop(&mut self) -> Option<StateId> {
-        match self.strategy {
-            SearchStrategy::BreadthFirst => self.pending.pop_front(),
-            SearchStrategy::DepthFirst => self.pending.pop_back(),
+    while let Some(idx) = stack.pop() {
+        let state = e.states[idx].clone();
+        let enabled = net.enabled_transitions(&state);
+        if enabled.is_empty() {
+            e.blocked.push(idx);
+            continue;
+        }
+        for t in enabled {
+            if let Ok(next) = net.fire(t, &state)
+                && let Some((target, is_new)) = e.insert_state(next)
+            {
+                e.record_edge(idx, target, t);
+                if is_new {
+                    stack.push(target);
+                }
+            }
         }
     }
-
-    fn push(&mut self, state: StateId) {
-        self.pending.push_back(state);
-    }
+    e.finish()
 }
 
-pub fn explore<Sema>(
-    semantics: &Sema,
-    model: &Sema::Model,
-    config: ExploreConfig,
-) -> Result<ReachabilityGraph<Sema::State, Sema::Binding>, AnalysisError>
-where
-    Sema: Semantics,
-{
-    if config.max_states == 0 {
-        return Err(AnalysisError::InvalidConfiguration {
-            max_states: config.max_states,
-        });
-    }
+// ── POR (sleep-set) ──
 
-    let initial = semantics
-        .initial_state(model)
-        .map_err(|source| AnalysisError::Initial { source })?;
-    let mut graph = ReachabilityGraph {
-        states: vec![initial],
-        edges: Vec::new(),
-        blocked: Vec::new(),
-        truncated: false,
-    };
-    let mut worklist = Worklist::new(config.strategy, StateId(0));
+fn explore_por(net: &dyn NetLike, max_states: usize) -> ReachabilityGraph {
+    let mut e = Explorer::new(net, max_states);
+    let initial = net.initial_state();
+    let (init_idx, _) = e.insert_state(initial).unwrap();
 
-    while let Some(source) = worklist.pop() {
-        let enabled = semantics
-            .enabled(model, &graph.states[source.0])
-            .map_err(|error| AnalysisError::Enabled {
-                state: source,
-                source: error,
-            })?;
+    let mut queue: VecDeque<(usize, HashSet<TransitionId>)> = VecDeque::new();
+    let mut sleep_sets: HashMap<usize, HashSet<TransitionId>> = HashMap::default();
+    queue.push_back((init_idx, HashSet::default()));
+
+    while let Some((idx, sleep)) = queue.pop_front() {
+        if e.states.len() > max_states {
+            break;
+        }
+        let state = e.states[idx].clone();
+        let enabled: HashSet<TransitionId> = net.enabled_transitions(&state).into_iter().collect();
 
         if enabled.is_empty() {
-            graph.blocked.push(source);
+            e.blocked.push(idx);
             continue;
         }
 
-        for (transition, binding) in enabled {
-            let execution = semantics
-                .fire(model, &graph.states[source.0], transition, &binding)
-                .map_err(|error| AnalysisError::Fire {
-                    state: source,
-                    transition,
-                    source: error,
-                })?;
-            let target_state = execution.state;
-            let target = graph
-                .states
-                .iter()
-                .position(|state| *state == target_state)
-                .map(StateId);
-
-            let target = match target {
-                Some(target) => target,
-                None if graph.states.len() >= config.max_states => {
-                    graph.truncated = true;
-                    continue;
-                }
-                None => {
-                    let target = StateId(graph.states.len());
-                    graph.states.push(target_state);
-                    worklist.push(target);
-                    target
-                }
+        let to_fire: Vec<TransitionId> = enabled.difference(&sleep).copied().collect();
+        for t in to_fire {
+            let Ok(next) = net.fire(t, &state) else {
+                continue;
             };
+            let enabled_next: HashSet<TransitionId> =
+                net.enabled_transitions(&next).into_iter().collect();
 
-            graph.edges.push(Edge {
-                source,
-                target,
-                transition: execution.fired,
-                binding,
-            });
+            // Add enabled transitions independent of `t` to the sleep set:
+            // their interleavings commute, so only one representative order is
+            // expanded.
+            let mut new_sleep = sleep.clone();
+            for &tt in &enabled {
+                if tt != t && transitions_are_independent(net, t, tt) {
+                    new_sleep.insert(tt);
+                }
+            }
+            new_sleep = new_sleep.intersection(&enabled_next).copied().collect();
+
+            let Some((target, is_new)) = e.insert_state(next) else {
+                continue;
+            };
+            e.record_edge(idx, target, t);
+
+            if is_new {
+                // New state: enqueue with the current sleep set.
+                sleep_sets.insert(target, new_sleep.clone());
+                queue.push_back((target, new_sleep));
+            } else {
+                // Same marking reached with a different sleep set: merge by
+                // intersection so no deadlock is lost.
+                let old_sleep = sleep_sets.get(&target).cloned().unwrap_or_default();
+                let merged: HashSet<TransitionId> =
+                    old_sleep.intersection(&new_sleep).copied().collect();
+                if merged != old_sleep {
+                    sleep_sets.insert(target, merged.clone());
+                    queue.push_back((target, merged));
+                }
+            }
+        }
+    }
+    e.finish()
+}
+
+/// Whether two transitions are independent: they share no place (neither in
+/// their pre nor post). Independent transitions commute.
+fn transitions_are_independent(net: &dyn NetLike, t1: TransitionId, t2: TransitionId) -> bool {
+    if t1 == t2 {
+        return false;
+    }
+    let mut places: HashSet<usize> = HashSet::default();
+    for (p, _) in net.pre_arcs(t1).into_iter().chain(net.post_arcs(t1)) {
+        places.insert(p.index());
+    }
+    for (p, _) in net.pre_arcs(t2).into_iter().chain(net.post_arcs(t2)) {
+        if places.contains(&p.index()) {
+            return false;
+        }
+    }
+    true
+}
+
+// ── Shared explorer ──
+
+struct Explorer<'a> {
+    net: &'a dyn NetLike,
+    max_states: usize,
+    states: Vec<State>,
+    seen: HashMap<State, usize>,
+    edges: Vec<(usize, usize, TransitionId)>,
+    preds: HashMap<usize, (usize, TransitionId, Vec<String>)>,
+    blocked: Vec<usize>,
+    truncated: bool,
+}
+
+impl<'a> Explorer<'a> {
+    fn new(net: &'a dyn NetLike, max_states: usize) -> Self {
+        Self {
+            net,
+            max_states,
+            states: Vec::new(),
+            seen: HashMap::default(),
+            edges: Vec::new(),
+            preds: HashMap::default(),
+            blocked: Vec::new(),
+            truncated: false,
         }
     }
 
-    Ok(graph)
-}
+    fn insert_state(&mut self, state: State) -> Option<(usize, bool)> {
+        match self.seen.entry(state.clone()) {
+            std::collections::hash_map::Entry::Occupied(e) => Some((*e.get(), false)),
+            std::collections::hash_map::Entry::Vacant(v) => {
+                if self.states.len() >= self.max_states {
+                    self.truncated = true;
+                    return None;
+                }
+                let idx = self.states.len();
+                self.states.push(state);
+                v.insert(idx);
+                Some((idx, true))
+            }
+        }
+    }
 
-pub fn find_deadlocks<S, B>(
-    graph: &ReachabilityGraph<S, B>,
-    is_normal_termination: impl Fn(&S) -> bool,
-) -> Vec<StateId> {
-    graph
-        .blocked
-        .iter()
-        .copied()
-        .filter(|state| !is_normal_termination(&graph.states[state.0]))
-        .collect()
-}
+    fn record_edge(&mut self, src: usize, dst: usize, t: TransitionId) {
+        self.edges.push((src, dst, t));
+        self.preds
+            .entry(dst)
+            .or_insert_with(|| (src, t, self.net.transition_anchors(t)));
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn worklist_supports_both_search_orders() {
-        let mut bfs = Worklist::new(SearchStrategy::BreadthFirst, StateId(0));
-        bfs.push(StateId(1));
-        bfs.push(StateId(2));
-        assert_eq!(bfs.pop(), Some(StateId(0)));
-        assert_eq!(bfs.pop(), Some(StateId(1)));
-
-        let mut dfs = Worklist::new(SearchStrategy::DepthFirst, StateId(0));
-        dfs.push(StateId(1));
-        dfs.push(StateId(2));
-        assert_eq!(dfs.pop(), Some(StateId(2)));
-        assert_eq!(dfs.pop(), Some(StateId(1)));
+    fn finish(self) -> ReachabilityGraph {
+        ReachabilityGraph {
+            states: self.states,
+            edges: self.edges,
+            initial: 0,
+            blocked: self.blocked,
+            truncated: self.truncated,
+            preds: self.preds,
+        }
     }
 }

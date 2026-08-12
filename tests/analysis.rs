@@ -1,4 +1,4 @@
-use unipn::analysis::{
+use unipn::analysis::generic::{
     AnalysisError, ExploreConfig, SearchStrategy, StateId, explore, find_deadlocks,
 };
 use unipn::{Execution, RuntimeError, Semantics, TransitionId};

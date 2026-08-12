@@ -26,9 +26,10 @@ core::NetModel  -----> runtime::State / Marking containers
 - `core`: declarative net structure, sorts, values, tokens, patterns, terms, guards, actions, and model validation.
 - `domain`: value interpretation and pattern matching. `ConcreteDomain` is the baseline domain; other domains can implement `Domain` for abstract values such as three-valued logic or clock constraints.
 - `runtime`: generic state, P/T marking, colored marking, and runtime errors. Time is a type parameter rather than a hard-coded field type.
-- `semantics`: the generic `Semantics` contract, the concrete `PtSemantics` weighted P/T adapter, and capability traits for timed, priority, and partial-order semantics.
-- `analysis`: domain-neutral BFS/DFS state-space exploration, transition-labeled edges, state limits, blocked states, and caller-defined deadlock filtering.
-- `ids`: stable index-based place, transition, sort, and function identifiers.
+- `semantics`: the generic `Semantics` contract, the concrete `PtSemantics` weighted P/T adapter, `ColoredSemantics`, and capability traits for timed, priority, and partial-order semantics.
+- `analysis`: NetLike-based BFS/DFS/POR reachability, deadlock/dead-transition/conflict analysis, coverability-tree boundness, and feature-gated invariants; plus a `Semantics`-trait-based generic explorer under `analysis::generic`.
+- `model`/`expr`/`state`/`storage`/`net`/`netlike`/`builder`/`export`: the matrix-backed CVN net subsystem (`Net`, `NetLike`, `NetBuilder`, guards/updates/capacities, DOT export).
+- `ids`: stable index-based place, transition, sort, and function identifiers (plus the `u32` `Weight`).
 
 `RoleTag` is metadata for frontends and analyses. It does not define firing semantics. A control-flow location, mutex, condition variable, semaphore, or async task state can be represented by the model's sorts, token values, arcs, and annotations without adding a new core net type.
 
@@ -45,7 +46,7 @@ Read, inhibitor, and reset arcs are part of the declarative model so later seman
 
 ## Current scope
 
-The current release is the foundation for replacing the former P/T-specific implementation. It provides serializable model types, model-reference validation, concrete expression evaluation, typed token containers, and extension traits. CPN firing, MIR lowering, timed DBM analysis, and verification algorithms are intentionally left for subsequent layers.
+The current release provides serializable model types, model-reference validation, concrete and colored firing semantics, the matrix-backed CVN net (guards/updates/capacities), reachability/deadlock/dead-transition/conflict/boundness analysis, and exact P/T invariants. MIR lowering, timed DBM analysis, net reduction, and verification algorithms are intentionally left for subsequent layers.
 
 ## Development
 
