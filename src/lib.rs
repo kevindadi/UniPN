@@ -10,32 +10,21 @@
 //!   test intent┘   (object-safe)   deadlock / dead_transition       test-case generation (testgen)
 //!   time (PTPN) ─▶ Timed reserve   conflict / invariants / dot      timed / real-time scheduling
 //! ```
-//!
-//! ## Design principles
-//!
-//! 1. **Trait-first**: [`netlike::NetLike`] is the single contract (object-safe).
-//!    Any net (CVN, ConcBugDect MIR→PN, future test/timed nets) only needs to
-//!    implement it to be consumed by the shared algorithms. A pure P/T net can
-//!    rely on the trait's default implementations (it only fills the structural
-//!    predicates).
-//! 2. **Matrix-backed**: the core [`net::Net`] stores the `Pre/Post` incidence
-//!    as CSC sparse columns, so the enabled/fire hot path is O(|arcs|) instead
-//!    of O(|P|·|T|); the dense `C = Post − Pre` matrix is only materialized when
-//!    linear algebra is needed.
-//! 3. **Semantics externalized**: `kind` is only an annotation; semantics such as
-//!    "thread terminal / wait point / resource" are exposed through frontend
-//!    predicates, not hardcoded in the common layer.
-//! 4. **Extensible**: `timed` / `invariants` are feature-gated extension slots.
 #![allow(clippy::collapsible_if)]
 
 pub mod analysis;
 pub mod builder;
+pub mod core;
+pub mod domain;
+pub mod engine;
 pub mod export;
 pub mod expr;
 pub mod ids;
 pub mod model;
 pub mod net;
 pub mod netlike;
+pub mod runtime;
+pub mod semantics;
 pub mod state;
 pub mod storage;
 pub mod testgen;
@@ -43,9 +32,13 @@ pub mod testgen;
 pub mod timed;
 
 pub use builder::NetBuilder;
-pub use expr::{BoolExpr, CmpOp, ConcreteVal, Expr, GuardResult, Op, Val, VarUpdate, eval_expr, eval_guard};
+pub use core::{expr::*, model::*, sort::*, value::*};
+pub use domain::mod_traits::{BindingEnv, Domain, TruthValue};
+pub use engine::interp::InterpEngine;
 pub use ids::{PlaceId, TransitionId, Weight};
 pub use model::{ControlSub, Place, PlaceKind, ResourceType, Transition, TransitionKind};
 pub use net::Net;
 pub use netlike::{FireError, NetLike};
+pub use runtime::marking::{ColoredMarking, Multiset, PtMarking};
+pub use runtime::state::{ColoredState, PtState, RuntimeState};
 pub use state::{Marking, State, VarStore};
