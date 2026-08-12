@@ -175,3 +175,12 @@ pub fn reduce(
 ) -> Result<ReductionResult, ReductionError> {
     Reducer::new(options).reduce(net, marking)
 }
+
+/// Convenience alias for the ConcBugDect-facing name.
+pub fn reduce_in_place(
+    net: &PtNet,
+    marking: &Marking,
+    options: ReductionOptions,
+) -> Result<ReductionResult, ReductionError> {
+    reduce(net, marking, options)
+}

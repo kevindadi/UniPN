@@ -278,6 +278,46 @@ impl PtBuilder {
         Marking::new(self.marking.clone())
     }
 
+    /// Mutable access to a transition's kind (for post-creation mutation).
+    pub fn transition_mut(&mut self, transition: TransitionId) -> Option<&mut PtTransitionKind> {
+        self.net
+            .transitions
+            .get_mut(transition.index())
+            .map(|t| &mut t.kind)
+    }
+
+    /// Mutable access to a place's kind (for post-creation capacity mutation).
+    pub fn place_mut(&mut self, place: PlaceId) -> Option<&mut PtPlaceKind> {
+        self.net.places.get_mut(place.index()).map(|p| &mut p.kind)
+    }
+
+    pub fn set_place_tokens(&mut self, place: PlaceId, tokens: usize) {
+        if let Some(slot) = self.marking.get_mut(place.index()) {
+            *slot = tokens;
+        }
+    }
+
+    /// The underlying net (read-only view while building).
+    pub fn net(&self) -> &PtNet {
+        &self.net
+    }
+
+    pub fn to_dot(&self) -> String {
+        self.net.to_dot()
+    }
+
+    pub fn write_dot<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<()> {
+        self.net.write_dot(path)
+    }
+
+    pub fn diagnose_connectivity(&self) -> DiagnosticReport {
+        self.net.diagnose_connectivity()
+    }
+
+    pub fn log_diagnostics(&self) {
+        self.net.log_diagnostics()
+    }
+
     pub fn build(self) -> (PtNet, Marking) {
         (self.net, Marking::new(self.marking))
     }
@@ -367,4 +407,127 @@ impl PtNet {
 /// Convenience: build a marking directly from a slice of counts.
 pub fn marking(counts: impl IntoIterator<Item = usize>) -> Marking {
     Marking::new(counts.into_iter().collect())
+}
+
+/// Petri net connectivity diagnostic report.
+#[derive(Clone, Debug, Default)]
+pub struct DiagnosticReport {
+    pub isolated_places: Vec<(PlaceId, String)>,
+    pub isolated_transitions: Vec<(TransitionId, String)>,
+    pub warnings: Vec<String>,
+    pub total_places: usize,
+    pub total_transitions: usize,
+}
+
+impl DiagnosticReport {
+    pub fn has_issues(&self) -> bool {
+        !self.isolated_places.is_empty()
+            || !self.isolated_transitions.is_empty()
+            || !self.warnings.is_empty()
+    }
+}
+
+impl PtNet {
+    pub fn to_dot(&self) -> String {
+        let mut out = String::from("digraph PetriNet {\n  rankdir=LR;\n");
+        for (i, place) in self.places.iter().enumerate() {
+            let cap = place
+                .kind
+                .capacity
+                .map_or("inf".to_string(), |c| c.to_string());
+            out.push_str(&format!(
+                "  p{i} [label=\"{}\\n{:?}\\n{}\", shape=circle];\n",
+                place.name, place.kind.place_type, cap
+            ));
+        }
+        for (i, transition) in self.transitions.iter().enumerate() {
+            out.push_str(&format!(
+                "  t{i} [label=\"{}\\n{:?}\", shape=box];\n",
+                transition.name, transition.kind.transition_type
+            ));
+        }
+        for arc in &self.arcs {
+            match arc.direction {
+                ArcDir::Input => out.push_str(&format!(
+                    "  p{} -> t{};\n",
+                    arc.place.index(),
+                    arc.transition.index()
+                )),
+                ArcDir::Output => out.push_str(&format!(
+                    "  t{} -> p{};\n",
+                    arc.transition.index(),
+                    arc.place.index()
+                )),
+                ArcDir::Inhibitor => out.push_str(&format!(
+                    "  p{} -> t{} [style=dotted];\n",
+                    arc.place.index(),
+                    arc.transition.index()
+                )),
+                _ => {}
+            }
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    pub fn write_dot<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<()> {
+        if let Some(parent) = path.as_ref().parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, self.to_dot())
+    }
+
+    pub fn diagnose_connectivity(&self) -> DiagnosticReport {
+        let mut report = DiagnosticReport {
+            total_places: self.num_places(),
+            total_transitions: self.num_transitions(),
+            ..DiagnosticReport::default()
+        };
+
+        for (i, place) in self.places.iter().enumerate() {
+            let pid = PlaceId(i);
+            let has_incoming = self
+                .arcs
+                .iter()
+                .any(|a| a.place == pid && a.direction == ArcDir::Output);
+            let has_outgoing = self
+                .arcs
+                .iter()
+                .any(|a| a.place == pid && a.direction == ArcDir::Input);
+            if !has_incoming && !has_outgoing {
+                report.isolated_places.push((pid, place.name.clone()));
+            }
+        }
+
+        for (i, transition) in self.transitions.iter().enumerate() {
+            let tid = TransitionId(i);
+            let has_preset = self
+                .arcs
+                .iter()
+                .any(|a| a.transition == tid && a.direction == ArcDir::Input);
+            let has_postset = self
+                .arcs
+                .iter()
+                .any(|a| a.transition == tid && a.direction == ArcDir::Output);
+            if !has_preset && !has_postset {
+                report
+                    .isolated_transitions
+                    .push((tid, transition.name.clone()));
+            }
+        }
+
+        report
+    }
+
+    pub fn log_diagnostics(&self) {
+        let report = self.diagnose_connectivity();
+        if report.has_issues() {
+            for (id, name) in &report.isolated_places {
+                eprintln!("isolated place [{}] {name}", id.index());
+            }
+            for (id, name) in &report.isolated_transitions {
+                eprintln!("isolated transition [{}] {name}", id.index());
+            }
+        }
+    }
 }
