@@ -1,285 +1,276 @@
-//! Matrix-backed `Net`: CSC incidence + optional guards/updates/capacities/
-//! variable domains.
+//! The single generic Petri-net model.
+//!
+//! Every net — P/T (ConcBugDect), priority-timed (PTPN), colored/CVN
+//! (ConcPlanVerify) — is an instantiation of [`Net`] over different *kind*
+//! payloads. The common structure is fixed:
+//!
+//! - a place always has an `id` (`PlaceId`) and a `name`;
+//! - a transition always has an `id` (`TransitionId`) and a `name`;
+//! - an arc always has a place, a transition, a `direction`, and a `weight`.
+//!
+//! The domain-specific part is carried by the generic kind parameters `PK`,
+//! `TK`, `AK` (place/transition/arc kind), and the marking is a dense
+//! `Vec<usize>` (index = place id, value = token count) kept **separate** from
+//! the net. Anything a net needs beyond the token counts (variable stores,
+//! clock zones, …) lives in its own [`State`] `extra` payload.
 
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 
-use crate::expr::{BoolExpr, ConcreteVal, Val, VarUpdate, eval_expr, eval_guard};
-use crate::ids::{PlaceId, TransitionId, Weight};
-use crate::model::{ControlSub, Place, PlaceKind, ResourceType, Transition, TransitionKind};
-use crate::netlike::{FireError, NetLike};
-use crate::state::{Marking, State, VarStore};
-use crate::storage::Incidence;
+use crate::ids::{PlaceId, TransitionId};
 
-/// The unified matrix-backed net.
-#[derive(Clone, Debug)]
-pub struct Net {
-    places: Vec<Place>,
-    transitions: Vec<Transition>,
-    pre: Incidence,
-    post: Incidence,
-    /// Input-arc guards (sparse; only data-modeling nets use them).
-    pre_guards: HashMap<(TransitionId, PlaceId), BoolExpr>,
-    /// Output-arc variable updates (sparse).
-    post_updates: HashMap<(TransitionId, PlaceId), VarUpdate>,
-    initial_marking: Marking,
-    initial_vars: Option<VarStore>,
-    /// Bounded Int domains: an update leaving the domain disables the
-    /// transition (decidability).
-    var_domains: HashMap<String, (i64, i64)>,
+/// A place node: fixed `id` + `name`, plus a domain-specific `kind`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Place<K = ()> {
+    pub id: PlaceId,
+    pub name: String,
+    pub kind: K,
 }
 
-impl Net {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_parts(
-        places: Vec<Place>,
-        transitions: Vec<Transition>,
-        pre: Incidence,
-        post: Incidence,
-        pre_guards: HashMap<(TransitionId, PlaceId), BoolExpr>,
-        post_updates: HashMap<(TransitionId, PlaceId), VarUpdate>,
-        initial_marking: Marking,
-        initial_vars: Option<VarStore>,
-        var_domains: HashMap<String, (i64, i64)>,
+impl<K> Place<K> {
+    pub fn new(id: PlaceId, name: impl Into<String>, kind: K) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            kind,
+        }
+    }
+}
+
+/// A transition node: fixed `id` + `name`, plus a domain-specific `kind`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Transition<K = ()> {
+    pub id: TransitionId,
+    pub name: String,
+    pub kind: K,
+}
+
+impl<K> Transition<K> {
+    pub fn new(id: TransitionId, name: impl Into<String>, kind: K) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            kind,
+        }
+    }
+}
+
+/// Arc direction. `Read` does not consume, `Inhibitor` blocks when the place
+/// holds enough tokens, `Reset` empties the place on firing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ArcDir {
+    Input,
+    Output,
+    Read,
+    Inhibitor,
+    Reset,
+}
+
+/// An arc: fixed endpoints + direction + weight, plus a domain-specific `kind`
+/// (empty `()` for pure P/T and timed nets; guards/updates for CVN).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Arc<K = ()> {
+    pub place: PlaceId,
+    pub transition: TransitionId,
+    pub direction: ArcDir,
+    pub weight: usize,
+    pub kind: K,
+}
+
+impl<K> Arc<K> {
+    pub fn new(
+        place: PlaceId,
+        transition: TransitionId,
+        direction: ArcDir,
+        weight: usize,
+        kind: K,
     ) -> Self {
         Self {
-            places,
-            transitions,
-            pre,
-            post,
-            pre_guards,
-            post_updates,
-            initial_marking,
-            initial_vars,
-            var_domains,
+            place,
+            transition,
+            direction,
+            weight,
+            kind,
+        }
+    }
+}
+
+/// The generic net: places, transitions, and arcs, parameterized by their kind
+/// payloads. Pure structure; no marking and no firing semantics live here.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Net<PK = (), TK = (), AK = ()> {
+    pub places: Vec<Place<PK>>,
+    pub transitions: Vec<Transition<TK>>,
+    pub arcs: Vec<Arc<AK>>,
+}
+
+impl<PK, TK, AK> Default for Net<PK, TK, AK> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<PK, TK, AK> Net<PK, TK, AK> {
+    pub fn new() -> Self {
+        Self {
+            places: Vec::new(),
+            transitions: Vec::new(),
+            arcs: Vec::new(),
         }
     }
 
-    pub fn place(&self, p: PlaceId) -> Option<&Place> {
-        self.places.get(p.index())
-    }
-
-    pub fn transition(&self, t: TransitionId) -> Option<&Transition> {
-        self.transitions.get(t.index())
-    }
-
-    pub fn places(&self) -> &[Place] {
-        &self.places
-    }
-
-    pub fn transitions(&self) -> &[Transition] {
-        &self.transitions
-    }
-
-    pub fn pre(&self) -> &Incidence {
-        &self.pre
-    }
-
-    pub fn post(&self) -> &Incidence {
-        &self.post
-    }
-
-    pub fn var_domain(&self, var: &str) -> Option<(i64, i64)> {
-        self.var_domains.get(var).copied()
-    }
-
-    /// The guard on the input arc `place → transition`, if any.
-    pub fn input_guard(&self, t: TransitionId, p: PlaceId) -> Option<&BoolExpr> {
-        self.pre_guards.get(&(t, p))
-    }
-
-    /// The variable update on the output arc `transition → place`, if any.
-    pub fn output_update(&self, t: TransitionId, p: PlaceId) -> Option<&VarUpdate> {
-        self.post_updates.get(&(t, p))
-    }
-}
-
-impl NetLike for Net {
-    fn num_places(&self) -> usize {
+    pub fn num_places(&self) -> usize {
         self.places.len()
     }
 
-    fn num_transitions(&self) -> usize {
+    pub fn num_transitions(&self) -> usize {
         self.transitions.len()
     }
 
-    fn place_label(&self, p: PlaceId) -> String {
-        self.places
-            .get(p.index())
-            .map_or_else(|| format!("p{}", p.index()), |pl| pl.name.clone())
+    pub fn place_ids(&self) -> impl Iterator<Item = PlaceId> + '_ {
+        self.places.iter().map(|p| p.id)
     }
 
-    fn place_kind(&self, p: PlaceId) -> Option<PlaceKind> {
-        self.places.get(p.index()).map(|pl| pl.kind.clone())
+    pub fn transition_ids(&self) -> impl Iterator<Item = TransitionId> + '_ {
+        self.transitions.iter().map(|t| t.id)
     }
 
-    fn transition_label(&self, t: TransitionId) -> String {
-        self.transitions
-            .get(t.index())
-            .map_or_else(|| format!("t{}", t.index()), |tr| tr.name.clone())
+    // ── Nodes ──
+
+    pub fn place(&self, id: PlaceId) -> Option<&Place<PK>> {
+        self.places.get(id.index())
     }
 
-    fn transition_kind(&self, t: TransitionId) -> Option<TransitionKind> {
-        self.transitions.get(t.index()).map(|tr| tr.kind.clone())
+    pub fn transition(&self, id: TransitionId) -> Option<&Transition<TK>> {
+        self.transitions.get(id.index())
     }
 
-    fn transition_anchors(&self, t: TransitionId) -> Vec<String> {
-        self.transitions
-            .get(t.index())
-            .map_or_else(Vec::new, |tr| tr.anchors.clone())
+    pub fn add_place(&mut self, name: impl Into<String>, kind: PK) -> PlaceId {
+        let id = PlaceId(self.places.len());
+        self.places.push(Place::new(id, name, kind));
+        id
     }
 
-    fn transition_family(&self, t: TransitionId) -> Option<&str> {
-        self.transitions
-            .get(t.index())
-            .and_then(|tr| tr.family.as_deref())
+    pub fn add_transition(&mut self, name: impl Into<String>, kind: TK) -> TransitionId {
+        let id = TransitionId(self.transitions.len());
+        self.transitions.push(Transition::new(id, name, kind));
+        id
     }
 
-    fn transition_scope(&self, t: TransitionId) -> Option<&str> {
-        self.transitions
-            .get(t.index())
-            .and_then(|tr| tr.scope.as_deref())
+    // ── Arcs ──
+
+    pub fn add_arc(
+        &mut self,
+        place: PlaceId,
+        transition: TransitionId,
+        direction: ArcDir,
+        weight: usize,
+        kind: AK,
+    ) {
+        self.arcs
+            .push(Arc::new(place, transition, direction, weight, kind));
     }
 
-    fn pre_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> {
-        self.pre
-            .column(t)
+    pub fn add_input_arc(&mut self, place: PlaceId, transition: TransitionId, kind: AK)
+    where
+        AK: Default,
+    {
+        self.add_arc(place, transition, ArcDir::Input, 1, kind);
+    }
+
+    pub fn add_output_arc(&mut self, transition: TransitionId, place: PlaceId, kind: AK)
+    where
+        AK: Default,
+    {
+        self.add_arc(place, transition, ArcDir::Output, 1, kind);
+    }
+
+    /// All arcs incident to `transition`.
+    pub fn arcs_for(&self, transition: TransitionId) -> impl Iterator<Item = &Arc<AK>> {
+        self.arcs.iter().filter(move |a| a.transition == transition)
+    }
+
+    /// Arcs of a given direction incident to `transition`.
+    pub fn arcs_of(
+        &self,
+        transition: TransitionId,
+        direction: ArcDir,
+    ) -> impl Iterator<Item = &Arc<AK>> {
+        self.arcs
             .iter()
-            .map(|&(p, w)| (PlaceId(p), w))
+            .filter(move |a| a.transition == transition && a.direction == direction)
+    }
+
+    /// The preset of `transition` (Input + Read + Inhibitor arcs).
+    pub fn pre_arcs(&self, transition: TransitionId) -> Vec<&Arc<AK>> {
+        self.arcs
+            .iter()
+            .filter(|a| {
+                a.transition == transition
+                    && matches!(
+                        a.direction,
+                        ArcDir::Input | ArcDir::Read | ArcDir::Inhibitor
+                    )
+            })
             .collect()
     }
 
-    fn post_arcs(&self, t: TransitionId) -> Vec<(PlaceId, Weight)> {
-        self.post
-            .column(t)
+    /// The postset of `transition` (Output arcs).
+    pub fn post_arcs(&self, transition: TransitionId) -> Vec<&Arc<AK>> {
+        self.arcs
             .iter()
-            .map(|&(p, w)| (PlaceId(p), w))
+            .filter(|a| a.transition == transition && a.direction == ArcDir::Output)
             .collect()
-    }
-
-    fn is_thread_terminal(&self, p: PlaceId) -> bool {
-        matches!(
-            self.place_kind(p),
-            Some(PlaceKind::Control(
-                ControlSub::ThreadEnd | ControlSub::FunctionEnd
-            ))
-        )
-    }
-
-    fn is_wait_point(&self, p: PlaceId) -> bool {
-        matches!(
-            self.place_kind(p),
-            Some(PlaceKind::Control(ControlSub::WaitPoint))
-        )
-    }
-
-    fn is_resource(&self, p: PlaceId) -> bool {
-        matches!(self.place_kind(p), Some(PlaceKind::Resource(_)))
-    }
-
-    fn initial_state(&self) -> State {
-        State::new(self.initial_marking.clone(), self.initial_vars.clone())
-    }
-
-    fn enabled_transitions(&self, s: &State) -> Vec<TransitionId> {
-        let mut out = Vec::new();
-        for t in 0..self.transitions.len() {
-            let tid = TransitionId(t);
-            if self.is_enabled(tid, s) {
-                out.push(tid);
-            }
-        }
-        out
-    }
-
-    fn fire(&self, t: TransitionId, s: &State) -> Result<State, FireError> {
-        if t.index() >= self.transitions.len() {
-            return Err(FireError::OutOfBounds(t));
-        }
-        if !self.is_enabled(t, s) {
-            return Err(FireError::NotEnabled(t));
-        }
-
-        let mut next = s.clone();
-        for &(p, w) in self.pre.column(t) {
-            let pid = PlaceId(p);
-            let tokens = next.marking.tokens(pid);
-            next.marking.set(pid, tokens - w);
-        }
-        for &(p, w) in self.post.column(t) {
-            let pid = PlaceId(p);
-            let after = next.marking.tokens(pid) + w;
-            if let Some(cap) = self.capacity_of(pid)
-                && after > cap
-            {
-                return Err(FireError::Capacity {
-                    place: pid,
-                    after,
-                    capacity: cap,
-                });
-            }
-            next.marking.set(pid, after);
-        }
-
-        // Variable updates: evaluate against the original state, then write.
-        let mut applied = false;
-        let mut store = next.vars.clone().unwrap_or_default();
-        for (&(tt, _), update) in &self.post_updates {
-            if tt == t {
-                applied = true;
-                for (var, expr) in update {
-                    store.insert(var.clone(), eval_expr(expr, s.vars()));
-                }
-            }
-        }
-        if applied {
-            next.vars = Some(store);
-        }
-
-        Ok(next)
     }
 }
 
-impl Net {
-    fn capacity_of(&self, p: PlaceId) -> Option<u32> {
-        let place = self.places.get(p.index())?;
-        if let Some(cap) = place.capacity {
-            return Some(cap);
-        }
-        match &place.kind {
-            PlaceKind::Resource(ResourceType::Mutex) => Some(1),
-            PlaceKind::Resource(ResourceType::RwLock { max_readers }) => Some(*max_readers),
-            PlaceKind::Resource(ResourceType::Semaphore { count }) => Some(*count),
-            _ => None,
-        }
+/// A dense marking: index = place id, value = token count (`usize`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct Marking(pub Vec<usize>);
+
+impl Marking {
+    pub fn new(counts: Vec<usize>) -> Self {
+        Self(counts)
     }
 
-    fn is_enabled(&self, t: TransitionId, s: &State) -> bool {
-        for &(p, w) in self.pre.column(t) {
-            let pid = PlaceId(p);
-            if s.marking.tokens(pid) < w {
-                return false;
-            }
-            if let Some(guard) = self.pre_guards.get(&(t, pid))
-                && !eval_guard(guard, s.vars()).is_not_false()
-            {
-                return false;
-            }
-        }
-        // Bounded Int domains: an update leaving the domain disables the
-        // transition.
-        for (&(tt, _), update) in &self.post_updates {
-            if tt != t {
-                continue;
-            }
-            for (var, expr) in update {
-                if let Some((lo, hi)) = self.var_domains.get(var)
-                    && let Val::Concrete(ConcreteVal::Int(v)) = eval_expr(expr, s.vars())
-                    && (v < *lo || v > *hi)
-                {
-                    return false;
-                }
-            }
-        }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn tokens(&self, place: PlaceId) -> usize {
+        self.0.get(place.index()).copied().unwrap_or(0)
+    }
+
+    pub fn set(&mut self, place: PlaceId, count: usize) -> bool {
+        let Some(slot) = self.0.get_mut(place.index()) else {
+            return false;
+        };
+        *slot = count;
         true
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (PlaceId, usize)> + '_ {
+        self.0.iter().enumerate().map(|(i, &c)| (PlaceId(i), c))
+    }
+
+    pub fn iter_nonzero(&self) -> impl Iterator<Item = (PlaceId, usize)> + '_ {
+        self.iter().filter(|(_, c)| *c > 0)
+    }
+}
+
+/// A runtime state: the common marking plus a per-net `extra` payload (variable
+/// store for CVN, clock zone for timed nets, `()` for plain P/T).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct State<E = ()> {
+    pub marking: Marking,
+    pub extra: E,
+}
+
+impl<E> State<E> {
+    pub fn new(marking: Marking, extra: E) -> Self {
+        Self { marking, extra }
     }
 }

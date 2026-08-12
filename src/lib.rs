@@ -1,49 +1,35 @@
-//! Extensible Petri-net model library.
+//! UniPN — a generic Petri-net model shared by three frontends.
 //!
-//! The crate separates declarative structure (`core`), value domains (`domain`),
-//! runtime containers (`runtime`), and execution semantics (`semantics`).
-//! Analysis engines and frontend lowerings can be built on these boundaries
-//! without changing the model representation.
+//! The crate provides a **single** generic model ([`net::Net`]) instantiated by
+//! three type aliases:
+//!
+//! - [`pt::PtNet`] — the ordinary P/T net (ConcBugDect's MIR→PN lowering);
+//! - [`timed::TimedNet`] — the priority timed net (PTPN);
+//! - [`cvn::CvnNet`] — the colored verification net with guards/updates
+//!   (ConcPlanVerify).
+//!
+//! Each net differs only in its place/transition/arc *kind* payloads and its
+//! own firing semantics; the structure, ids, weights, and marking are shared.
 
 pub mod analysis;
-pub mod bug;
-pub mod builder;
-pub mod core;
-pub mod domain;
-pub mod export;
+pub mod cvn;
 pub mod expr;
 pub mod ids;
 pub mod model;
 pub mod net;
-pub mod netlike;
 pub mod pt;
-pub mod runtime;
-pub mod semantics;
-pub mod state;
-pub mod storage;
-#[cfg(feature = "timed")]
 pub mod timed;
 
-pub use builder::NetBuilder;
-pub use core::expr::{ActionExpr, GuardExpr, Pattern, Term};
-pub use core::model::{
-    ArcDecl, InhibitorArc, InputArc, ModelError, Multiplicity, NetModel, OutputArc, PlaceDecl,
-    ReadArc, ResetArc, RoleTag, TimingSpec, TransitionDecl,
+pub use analysis::{
+    AnalysisConfig, NetLike, ReachabilityGraph, SearchStrategy, explore, find_deadlocks,
 };
-pub use core::sort::Sort;
-pub use core::value::{Bool3, Token, Value};
-pub use domain::{BindingEnv, Domain, DomainError, TruthValue};
+pub use cvn::{CvnArcKind, CvnBuilder, CvnNet, CvnState, VarStore};
 pub use expr::{BoolExpr, CmpOp, ConcreteVal, Expr, Op, Val, VarUpdate};
-pub use ids::{FuncId, PlaceId, SortId, Symbol, TransitionId, Weight};
-pub use model::{ControlSub, Place, PlaceKind, ResourceType, Transition, TransitionKind};
-pub use net::Net;
-pub use netlike::{FireError, NetLike};
+pub use ids::{PlaceId, TransitionId};
+pub use model::{ControlSub, PlaceKind, ResourceType, TransitionKind};
+pub use net::{Arc, ArcDir, Marking, Net, Place, State, Transition};
 pub use pt::{
-    CapacityMode, PlaceRole, PtArc, PtArcKind, PtExecutionError, PtModelError, PtNet, PtPlace,
-    PtTransition,
+    AtomicOrdering, CapacityMode, PlaceType, PtNet, PtPlaceKind, PtTransitionKind, SourceLocation,
+    TransitionType, UnsafeOp, initial_marking, marking,
 };
-pub use runtime::{
-    ColoredMarking, ColoredState, Multiset, PtMarking, PtState, RuntimeError, RuntimeState,
-};
-pub use semantics::{ColoredSemantics, Execution, PtSemantics, Semantics};
-pub use state::{Marking, State, VarStore};
+pub use timed::{TimeInterval, TimedNet, TimedPlaceKind, TimedTransitionKind};
