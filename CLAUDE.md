@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## Project
 
-UniPN is a Rust edition 2024 library for representing extensible Petri-net models. It is library-only: it provides a declarative IR, typed values and expressions, runtime containers, domain interfaces, and semantic capability traits. It does not provide a CLI, execution language, reachability analyzer, or MIR lowering implementation yet.
+UniPN is a Rust edition 2024 library for representing extensible Petri-net models. It is library-only: it provides a declarative IR, typed values and expressions, runtime containers, domain interfaces, semantic capability traits, and domain-neutral state-space exploration. It does not provide a CLI, execution language, or project-specific verification algorithms.
 
 ## Common Commands
 
@@ -31,6 +31,7 @@ The public boundary is `src/lib.rs`, which exposes five layers:
 - `domain`: `Domain` defines how a value domain evaluates terms, evaluates guards, and matches patterns. `ConcreteDomain` is the baseline implementation; abstract domains can provide alternate value and three-valued interpretations.
 - `runtime`: generic `RuntimeState<M, G, T>`, P/T markings, colored typed-token multisets, and runtime errors. Time remains a state type parameter rather than a fixed implementation choice.
 - `semantics`: the generic `Semantics` contract, the concrete `PtSemantics` weighted P/T adapter, and separate timed, priority, and partial-order capability traits. Concrete firing engines can implement these interfaces without changing the IR.
+- `analysis`: domain-neutral BFS/DFS state-space exploration, transition-labeled edges, state limits, blocked states, and caller-defined deadlock filtering.
 - `ids`: stable place, transition, sort, and function identifiers shared by the other layers.
 
 `RoleTag` is analysis/frontend metadata only. It does not define firing behavior; control-flow locations and shared resources are represented through places, sorts, token values, arcs, expressions, and future annotations.

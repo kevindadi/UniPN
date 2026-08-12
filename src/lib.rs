@@ -5,6 +5,7 @@
 //! Analysis engines and frontend lowerings can be built on these boundaries
 //! without changing the model representation.
 
+pub mod analysis;
 pub mod core;
 pub mod domain;
 pub mod ids;
