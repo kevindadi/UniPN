@@ -33,6 +33,7 @@ fn model() -> NetModel {
             arc: InputArc {
                 place: PlaceId(0),
                 pattern: Pattern::Var("state".into()),
+                weight: 1,
             },
         }],
         sorts: vec![Sort::Int {
@@ -53,6 +54,7 @@ fn validates_model_references() {
         arc: InputArc {
             place: PlaceId(0),
             pattern: Pattern::Wildcard,
+            weight: 1,
         },
     });
     assert_eq!(

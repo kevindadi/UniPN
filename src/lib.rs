@@ -24,4 +24,4 @@ pub use ids::{FuncId, PlaceId, SortId, Symbol, TransitionId};
 pub use runtime::{
     ColoredMarking, ColoredState, Multiset, PtMarking, PtState, RuntimeError, RuntimeState,
 };
-pub use semantics::{Execution, Semantics};
+pub use semantics::{Execution, PtSemantics, Semantics};

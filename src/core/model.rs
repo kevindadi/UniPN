@@ -18,7 +18,6 @@ pub enum RoleTag {
     Control,
     Resource,
     Terminal,
-    Wait,
     Other(Symbol),
 }
 
@@ -52,12 +51,14 @@ pub struct TransitionDecl {
 pub struct InputArc {
     pub place: PlaceId,
     pub pattern: Pattern,
+    pub weight: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputArc {
     pub place: PlaceId,
     pub term: Term,
+    pub weight: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +125,16 @@ pub enum ModelError {
     MissingArcTransition(TransitionId),
     #[error("initial marking references missing place {0}")]
     MissingInitialPlace(PlaceId),
+    #[error("input arc on {transition} has zero weight")]
+    ZeroInputWeight {
+        transition: TransitionId,
+        place: PlaceId,
+    },
+    #[error("output arc on {transition} has zero weight")]
+    ZeroOutputWeight {
+        transition: TransitionId,
+        place: PlaceId,
+    },
 }
 
 impl NetModel {
@@ -204,8 +215,24 @@ impl NetModel {
         }
         for arc in &self.arcs {
             let (transition, place) = match arc {
-                ArcDecl::Input { transition, arc } => (*transition, arc.place),
-                ArcDecl::Output { transition, arc } => (*transition, arc.place),
+                ArcDecl::Input { transition, arc } => {
+                    if arc.weight == 0 {
+                        return Err(ModelError::ZeroInputWeight {
+                            transition: *transition,
+                            place: arc.place,
+                        });
+                    }
+                    (*transition, arc.place)
+                }
+                ArcDecl::Output { transition, arc } => {
+                    if arc.weight == 0 {
+                        return Err(ModelError::ZeroOutputWeight {
+                            transition: *transition,
+                            place: arc.place,
+                        });
+                    }
+                    (*transition, arc.place)
+                }
                 ArcDecl::Read { transition, arc } => (*transition, arc.place),
                 ArcDecl::Inhibitor { transition, arc } => (*transition, arc.place),
                 ArcDecl::Reset { transition, arc } => (*transition, arc.place),
