@@ -134,6 +134,17 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
         self.transitions.iter().map(|t| t.id)
     }
 
+    pub fn places_enumerated(&self) -> impl Iterator<Item = (PlaceId, &Place<PK>)> {
+        self.places.iter().enumerate().map(|(i, p)| (PlaceId(i), p))
+    }
+
+    pub fn transitions_enumerated(&self) -> impl Iterator<Item = (TransitionId, &Transition<TK>)> {
+        self.transitions
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (TransitionId(i), t))
+    }
+
     // ── Nodes ──
 
     pub fn place(&self, id: PlaceId) -> Option<&Place<PK>> {

@@ -5,8 +5,10 @@
 //! enabled transitions); whether a blocked state is a *deadlock* is decided by
 //! the caller via [`find_deadlocks`].
 //!
-//! Timed (DBM/state-class) analysis lives in [`timed`].
+//! Timed (DBM/state-class) analysis lives in [`timed`]; P/T analysis lives in
+//! [`pt`].
 
+pub mod pt;
 pub mod timed;
 
 use std::collections::{HashMap, HashSet, VecDeque};
