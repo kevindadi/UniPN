@@ -33,6 +33,6 @@ pub use pt::{
     TransitionType, UnsafeOp, initial_marking, marking,
 };
 pub use timed::{
-    TimeInterval, TimedNet, TimedPlaceKind, TimedTransitionKind, CONTROL_TRANSITION_CORE, INF,
+    CONTROL_TRANSITION_CORE, INF, TimeInterval, TimedNet, TimedPlaceKind, TimedTransitionKind,
     overflowed_places, reset_overflow_recording,
 };
