@@ -536,6 +536,37 @@ impl StateGraph {
         self.markings.contains_key(marking)
     }
 
+    pub fn node_indices(&self) -> std::ops::Range<usize> {
+        0..self.states.len()
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.states.len()
+    }
+
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    /// Outgoing edges of a node, as petgraph-style references.
+    pub fn edges(&self, node: usize) -> impl Iterator<Item = EdgeRef<'_>> {
+        self.edges.iter().enumerate().filter_map(move |(id, (src, tgt, e))| {
+            (*src == node).then_some(EdgeRef {
+                id,
+                target: *tgt,
+                weight: e,
+            })
+        })
+    }
+
+    pub fn edge_weights(&self) -> impl Iterator<Item = &StateEdge> {
+        self.edges.iter().map(|(_, _, e)| e)
+    }
+
+    pub fn edge_weight(&self, id: usize) -> Option<&StateEdge> {
+        self.edges.get(id).map(|(_, _, e)| e)
+    }
+
     /// Get the input resources (places + required tokens) of a transition.
     pub fn get_transition_resources(&self, transition_id: TransitionId) -> Vec<(PlaceId, usize)> {
         match &self.net {
@@ -545,5 +576,26 @@ impl StateGraph {
                 .collect(),
             None => Vec::new(),
         }
+    }
+}
+
+/// A petgraph-style edge reference over the Vec-based state graph.
+pub struct EdgeRef<'a> {
+    pub id: usize,
+    pub target: usize,
+    pub weight: &'a StateEdge,
+}
+
+impl EdgeRef<'_> {
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    pub fn target(&self) -> usize {
+        self.target
+    }
+
+    pub fn weight(&self) -> &StateEdge {
+        self.weight
     }
 }
