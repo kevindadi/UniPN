@@ -15,6 +15,7 @@ pub mod analysis;
 pub mod cvn;
 pub mod expr;
 pub mod ids;
+pub mod incidence;
 pub mod model;
 pub mod net;
 pub mod pt;
@@ -28,7 +29,7 @@ pub use cvn::{CvnArcKind, CvnBuilder, CvnNet, CvnState, CvnTransition, VarStore}
 pub use expr::{BoolExpr, CmpOp, ConcreteVal, Expr, Op, Val, VarUpdate};
 pub use ids::{PlaceId, TransitionId};
 pub use model::{ControlSub, PlaceKind, ResourceType, TransitionKind};
-pub use net::{Arc, ArcDir, Marking, Net, Place, State, Transition};
+pub use net::{Arc, ArcDir, Incidence, IncidenceMatrix, Marking, Net, Place, State, Transition};
 pub use pt::{
     AliasId, AtomicOrdering, PlaceType, PtBuilder, PtNet, PtPlace, PtPlaceKind, PtTransition,
     PtTransitionKind, TransitionType, UnsafeOp, marking,

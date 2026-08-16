@@ -2,13 +2,15 @@
 //!
 //! `TimedNet` is [`Net`] instantiated with PTPN's place/transition kind
 //! payloads and no arc kind. Time is an *annotation* on transitions; the
-//! discrete (untimed) firing lives here, while the state-class (DBM)
-//! reachability analysis lives in [`crate::analysis::timed`].
+//! discrete (untimed) firing lives here and is exposed through [`NetLike`],
+//! while the state-class (DBM) reachability analysis lives in
+//! [`crate::analysis::timed`].
 
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::fmt;
 
+use crate::analysis::NetLike;
 use crate::ids::TransitionId;
 use crate::net::{ArcDir, Marking, Net};
 
@@ -162,7 +164,15 @@ impl TimedNet {
 
     /// Fires a transition: consumes input tokens and produces output tokens,
     /// clamping each output place to its capacity.
+    ///
+    /// This inherent method does not re-check enabling (the timed state-class
+    /// explorer already has). [`NetLike::fire`] returns `None` when the
+    /// transition is not structurally enabled.
     pub fn fire(&self, marking: &Marking, transition: TransitionId) -> Marking {
+        self.fire_marking(marking, transition)
+    }
+
+    fn fire_marking(&self, marking: &Marking, transition: TransitionId) -> Marking {
         let mut next = marking.clone();
 
         for arc in self.arcs_of(transition, ArcDir::Input) {
@@ -190,5 +200,32 @@ impl TimedNet {
         }
 
         next
+    }
+}
+
+impl NetLike for TimedNet {
+    type State = Marking;
+
+    fn num_places(&self) -> usize {
+        self.places.len()
+    }
+
+    fn num_transitions(&self) -> usize {
+        self.transitions.len()
+    }
+
+    fn enabled(&self, state: &Self::State) -> Vec<TransitionId> {
+        self.transitions
+            .iter()
+            .filter(|t| self.is_enabled(state, t.id))
+            .map(|t| t.id)
+            .collect()
+    }
+
+    fn fire(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State> {
+        if !self.is_enabled(state, transition) {
+            return None;
+        }
+        Some(self.fire_marking(state, transition))
     }
 }

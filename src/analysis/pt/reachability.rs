@@ -550,13 +550,16 @@ impl StateGraph {
 
     /// Outgoing edges of a node, as petgraph-style references.
     pub fn edges(&self, node: usize) -> impl Iterator<Item = EdgeRef<'_>> {
-        self.edges.iter().enumerate().filter_map(move |(id, (src, tgt, e))| {
-            (*src == node).then_some(EdgeRef {
-                id,
-                target: *tgt,
-                weight: e,
+        self.edges
+            .iter()
+            .enumerate()
+            .filter_map(move |(id, (src, tgt, e))| {
+                (*src == node).then_some(EdgeRef {
+                    id,
+                    target: *tgt,
+                    weight: e,
+                })
             })
-        })
     }
 
     pub fn edge_weights(&self) -> impl Iterator<Item = &StateEdge> {

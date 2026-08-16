@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::{PlaceId, TransitionId};
 
+pub use crate::incidence::{Incidence, IncidenceMatrix};
+
 /// A place node: fixed `id` + `name`, plus a domain-specific `kind`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Place<K = ()> {
@@ -231,6 +233,19 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
             .iter()
             .filter(|a| a.transition == transition && a.direction == ArcDir::Output)
             .collect()
+    }
+
+    /// Aggregated adjacency snapshot (preset/postset plus read/inhibitor/reset).
+    ///
+    /// Rebuild after mutating `arcs`. See [`Incidence`] for what is and is not
+    /// visible to the ordinary incidence matrix (CVN guards, colors, …).
+    pub fn incidence(&self) -> Incidence {
+        Incidence::of(self)
+    }
+
+    /// Ordinary token-flow matrix `C[p, t] = w_post − w_pre`.
+    pub fn incidence_matrix(&self) -> IncidenceMatrix {
+        self.incidence().matrix()
     }
 }
 

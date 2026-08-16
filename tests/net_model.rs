@@ -134,30 +134,61 @@ fn cvn_resource_capacity_blocks_second_lock() {
     assert!(net.enabled(&fired).is_empty());
 }
 
-// ── Timed net (model only) ───────────────────────────────────────────────
+// ── Timed net (discrete NetLike) ─────────────────────────────────────────
+
+fn timed_place(capacity: Option<usize>, saturate: bool) -> TimedPlaceKind {
+    TimedPlaceKind { capacity, saturate }
+}
+
+fn timed_transition(earliest: i32, latest: i32) -> TimedTransitionKind {
+    TimedTransitionKind {
+        interval: TimeInterval::closed(earliest, latest),
+        priority: 0,
+        core: 0,
+        suspendable: false,
+    }
+}
+
+fn timed_relay() -> (TimedNet, Marking) {
+    let mut net = TimedNet::new();
+    let p0 = net.add_place("p0", timed_place(None, false));
+    let p1 = net.add_place("p1", timed_place(None, false));
+    let t = net.add_transition("t", timed_transition(1, 5));
+    net.add_arc(p0, t, ArcDir::Input, 1, ());
+    net.add_arc(p1, t, ArcDir::Output, 1, ());
+    (net, Marking::new(vec![1, 0]))
+}
 
 #[test]
-fn timed_net_model_builds() {
+fn timed_net_fires_through_netlike_and_explore() {
+    let (net, initial) = timed_relay();
+    assert_eq!(net.enabled(&initial), vec![TransitionId(0)]);
+
+    let fired = NetLike::fire(&net, &initial, TransitionId(0)).unwrap();
+    assert_eq!(fired.tokens(PlaceId(0)), 0);
+    assert_eq!(fired.tokens(PlaceId(1)), 1);
+    assert!(NetLike::fire(&net, &fired, TransitionId(0)).is_none());
+
+    let graph = explore(&net, initial, &AnalysisConfig::default());
+    assert_eq!(graph.state_count(), 2);
+    assert_eq!(graph.blocked, vec![1]);
+}
+
+#[test]
+fn timed_net_clamps_capacity_and_stays_enabled() {
     let mut net = TimedNet::new();
-    let p = net.add_place(
-        "cpu",
-        TimedPlaceKind {
-            capacity: Some(1),
-            saturate: false,
-        },
-    );
-    let t = net.add_transition(
-        "exec",
-        TimedTransitionKind {
-            interval: TimeInterval::closed(1, 5),
-            priority: 0,
-            core: 0,
-            suspendable: false,
-        },
-    );
-    net.add_arc(p, t, ArcDir::Input, 1, ());
-    assert_eq!(net.num_places(), 1);
-    assert_eq!(net.num_transitions(), 1);
+    let src = net.add_place("src", timed_place(None, false));
+    let dst = net.add_place("dst", timed_place(Some(1), true));
+    let t = net.add_transition("produce", timed_transition(0, 0));
+    net.add_arc(src, t, ArcDir::Input, 1, ());
+    net.add_arc(dst, t, ArcDir::Output, 1, ());
+
+    // Successor capacity does not gate enabling; overflow is clamped.
+    let marking = Marking::new(vec![1, 1]);
+    assert_eq!(net.enabled(&marking), vec![t]);
+    let fired = NetLike::fire(&net, &marking, t).unwrap();
+    assert_eq!(fired.tokens(src), 0);
+    assert_eq!(fired.tokens(dst), 1);
 }
 
 #[test]
@@ -173,4 +204,83 @@ fn bf_vs_dfs_agree_on_reachable_state_count() {
         },
     );
     assert_eq!(bfs.state_count(), dfs.state_count());
+}
+
+// ── Incidence / adjacency ────────────────────────────────────────────────
+
+#[test]
+fn incidence_matrix_of_a_relay_is_minus_one_plus_one() {
+    let (net, _) = pt_relay();
+    let inc = net.incidence();
+    let t = TransitionId(0);
+    let p0 = PlaceId(0);
+    let p1 = PlaceId(1);
+
+    assert_eq!(inc.pre(t), &[(p0, 1)]);
+    assert_eq!(inc.post(t), &[(p1, 1)]);
+    assert_eq!(inc.consumers(p0), &[(t, 1)]);
+    assert_eq!(inc.producers(p1), &[(t, 1)]);
+
+    let c = inc.matrix();
+    assert_eq!(c.get(p0, t), -1);
+    assert_eq!(c.get(p1, t), 1);
+    assert_eq!(c.apply(&[1]), Some(vec![-1, 1]));
+}
+
+#[test]
+fn incidence_aggregates_parallel_arcs_and_excludes_test_arcs() {
+    let mut net = PtNet::new();
+    let p = net.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
+    let q = net.add_place("q", PtPlaceKind::new(PlaceType::BasicBlock));
+    let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
+    net.add_arc(p, t, ArcDir::Input, 2, ());
+    net.add_arc(p, t, ArcDir::Input, 3, ());
+    net.add_arc(q, t, ArcDir::Output, 1, ());
+    net.add_arc(p, t, ArcDir::Read, 1, ());
+    net.add_arc(q, t, ArcDir::Inhibitor, 4, ());
+    net.add_arc(q, t, ArcDir::Reset, 1, ());
+
+    let inc = net.incidence();
+    assert_eq!(inc.pre_weight(p, t), 5);
+    assert_eq!(inc.post_weight(q, t), 1);
+    assert_eq!(inc.read(t), &[(p, 1)]);
+    assert_eq!(inc.inhibitor(t), &[(q, 4)]);
+    assert_eq!(inc.reset(t), &[(q, 1)]);
+
+    let c = net.incidence_matrix();
+    // Read / inhibitor / reset do not enter C.
+    assert_eq!(c.get(p, t), -5);
+    assert_eq!(c.get(q, t), 1);
+}
+
+#[test]
+fn incidence_self_loop_cancels_in_c_but_stays_in_adjacency() {
+    let mut net = PtNet::new();
+    let p = net.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
+    let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
+    net.add_arc(p, t, ArcDir::Input, 1, ());
+    net.add_arc(p, t, ArcDir::Output, 1, ());
+
+    let inc = net.incidence();
+    assert_eq!(inc.pre(t), &[(p, 1)]);
+    assert_eq!(inc.post(t), &[(p, 1)]);
+    assert_eq!(inc.matrix().get(p, t), 0);
+}
+
+#[test]
+fn cvn_incidence_is_the_token_skeleton_guards_do_not_enter_c() {
+    let (net, initial) = cvn_counter();
+    let p = PlaceId(0);
+    let t = TransitionId(0);
+    let c = net.incidence_matrix();
+
+    // Self-loop of weight 1: marking is conserved, C = [0].
+    assert_eq!(c.get(p, t), 0);
+    // The marking equation allows any firing count…
+    assert_eq!(c.apply(&[3]), Some(vec![0]));
+    assert_eq!(c.apply(&[100]), Some(vec![0]));
+    // …but the guard `x < 3` only permits three firings.
+    let graph = explore(&net, initial, &AnalysisConfig::default());
+    assert_eq!(graph.edge_count(), 3);
+    assert_eq!(graph.states.last().unwrap().marking.tokens(p), 1);
 }

@@ -383,7 +383,9 @@ impl PtNet {
     pub fn input_weight(&self, place: PlaceId, transition: TransitionId) -> usize {
         self.arcs
             .iter()
-            .filter(|a| a.place == place && a.transition == transition && a.direction == ArcDir::Input)
+            .filter(|a| {
+                a.place == place && a.transition == transition && a.direction == ArcDir::Input
+            })
             .map(|a| a.weight)
             .sum()
     }
