@@ -30,12 +30,22 @@ The marking is kept separate from the net; anything a net needs beyond token cou
 
 Analysis is not part of the model. The [`analysis`](src/analysis/mod.rs) module provides the minimal firing contract [`NetLike`] plus `explore` (BFS/DFS reachability) and `find_deadlocks`. The explorer only reports *blocked* states; the caller decides what counts as a deadlock.
 
+Timed (DBM / state-class) analysis is optional:
+
+```toml
+unipn = { version = "0.2", features = ["timed"] }          # default
+unipn = { version = "0.2", default-features = false }      # model + discrete NetLike only
+```
+
+`TimedNet`'s `NetLike` state is `TimedState` (`State<TimedExtra>`): marking only. Clock zones stay in `analysis::timed::StateClass` and are not switched in via the feature — a zone is a set of clock valuations, not a field that discrete `fire` can update.
+
 ## Development
 
 ```bash
 cargo fmt --all
 cargo check --all-targets
 cargo test
+cargo test --no-default-features
 cargo clippy --all-targets -- -D warnings
 cargo doc --no-deps
 ```

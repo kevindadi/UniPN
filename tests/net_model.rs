@@ -4,7 +4,7 @@ use unipn::model::{ControlSub, PlaceKind, ResourceType, TransitionKind};
 use unipn::net::{ArcDir, Marking};
 use unipn::pt::{PlaceType, PtPlaceKind, PtTransitionKind, TransitionType};
 use unipn::{
-    CvnBuilder, CvnNet, PlaceId, PtNet, TimeInterval, TimedNet, TimedPlaceKind,
+    CvnBuilder, CvnNet, PlaceId, PtNet, TimeInterval, TimedNet, TimedPlaceKind, TimedState,
     TimedTransitionKind, TransitionId,
 };
 
@@ -149,14 +149,14 @@ fn timed_transition(earliest: i32, latest: i32) -> TimedTransitionKind {
     }
 }
 
-fn timed_relay() -> (TimedNet, Marking) {
+fn timed_relay() -> (TimedNet, TimedState) {
     let mut net = TimedNet::new();
     let p0 = net.add_place("p0", timed_place(None, false));
     let p1 = net.add_place("p1", timed_place(None, false));
     let t = net.add_transition("t", timed_transition(1, 5));
     net.add_arc(p0, t, ArcDir::Input, 1, ());
     net.add_arc(p1, t, ArcDir::Output, 1, ());
-    (net, Marking::new(vec![1, 0]))
+    (net, TimedState::from(Marking::new(vec![1, 0])))
 }
 
 #[test]
@@ -165,8 +165,8 @@ fn timed_net_fires_through_netlike_and_explore() {
     assert_eq!(net.enabled(&initial), vec![TransitionId(0)]);
 
     let fired = NetLike::fire(&net, &initial, TransitionId(0)).unwrap();
-    assert_eq!(fired.tokens(PlaceId(0)), 0);
-    assert_eq!(fired.tokens(PlaceId(1)), 1);
+    assert_eq!(fired.marking.tokens(PlaceId(0)), 0);
+    assert_eq!(fired.marking.tokens(PlaceId(1)), 1);
     assert!(NetLike::fire(&net, &fired, TransitionId(0)).is_none());
 
     let graph = explore(&net, initial, &AnalysisConfig::default());
@@ -184,11 +184,11 @@ fn timed_net_clamps_capacity_and_stays_enabled() {
     net.add_arc(dst, t, ArcDir::Output, 1, ());
 
     // Successor capacity does not gate enabling; overflow is clamped.
-    let marking = Marking::new(vec![1, 1]);
-    assert_eq!(net.enabled(&marking), vec![t]);
-    let fired = NetLike::fire(&net, &marking, t).unwrap();
-    assert_eq!(fired.tokens(src), 0);
-    assert_eq!(fired.tokens(dst), 1);
+    let state = TimedState::from(Marking::new(vec![1, 1]));
+    assert_eq!(net.enabled(&state), vec![t]);
+    let fired = NetLike::fire(&net, &state, t).unwrap();
+    assert_eq!(fired.marking.tokens(src), 0);
+    assert_eq!(fired.marking.tokens(dst), 1);
 }
 
 #[test]

@@ -2,9 +2,10 @@
 //!
 //! `TimedNet` is [`Net`] instantiated with PTPN's place/transition kind
 //! payloads and no arc kind. Time is an *annotation* on transitions; the
-//! discrete (untimed) firing lives here and is exposed through [`NetLike`],
-//! while the state-class (DBM) reachability analysis lives in
-//! [`crate::analysis::timed`].
+//! discrete (untimed) firing lives here and is exposed through [`NetLike`]
+//! over [`TimedState`]. Clock zones are *not* part of that state: the
+//! state-class (DBM) analysis lives in `analysis::timed` and is compiled
+//! only with the `timed` feature.
 
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -12,7 +13,7 @@ use std::fmt;
 
 use crate::analysis::NetLike;
 use crate::ids::TransitionId;
-use crate::net::{ArcDir, Marking, Net};
+use crate::net::{ArcDir, Marking, Net, State};
 
 /// Sentinel for "no upper bound" (+∞) in time intervals and DBM matrices.
 pub const INF: i32 = i32::MAX;
@@ -153,6 +154,23 @@ pub struct TimedTransitionKind {
 /// The priority timed Petri net (no arc payload).
 pub type TimedNet = Net<TimedPlaceKind, TimedTransitionKind, ()>;
 
+/// Extra payload of the discrete timed state.
+///
+/// Empty on purpose: [`NetLike`] for [`TimedNet`] is untimed token flow.
+/// A clock zone is a *set* of valuations (a DBM), not a single extra
+/// field that `fire` can update, so it stays in `analysis::timed::StateClass`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TimedExtra;
+
+/// Discrete timed state: marking + empty extra (same shape as [`CvnState`](crate::cvn::CvnState)).
+pub type TimedState = State<TimedExtra>;
+
+impl From<Marking> for TimedState {
+    fn from(marking: Marking) -> Self {
+        State::new(marking, TimedExtra)
+    }
+}
+
 impl TimedNet {
     /// Structural (input-driven) enabling: every input place holds enough
     /// tokens. Successor capacity never gates a transition (overflow on
@@ -204,7 +222,7 @@ impl TimedNet {
 }
 
 impl NetLike for TimedNet {
-    type State = Marking;
+    type State = TimedState;
 
     fn num_places(&self) -> usize {
         self.places.len()
@@ -217,15 +235,18 @@ impl NetLike for TimedNet {
     fn enabled(&self, state: &Self::State) -> Vec<TransitionId> {
         self.transitions
             .iter()
-            .filter(|t| self.is_enabled(state, t.id))
+            .filter(|t| self.is_enabled(&state.marking, t.id))
             .map(|t| t.id)
             .collect()
     }
 
     fn fire(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State> {
-        if !self.is_enabled(state, transition) {
+        if !self.is_enabled(&state.marking, transition) {
             return None;
         }
-        Some(self.fire_marking(state, transition))
+        Some(State::new(
+            self.fire_marking(&state.marking, transition),
+            state.extra,
+        ))
     }
 }
