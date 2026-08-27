@@ -25,7 +25,7 @@ impl ReductionGraph {
                 if self.places[head_idx].removed {
                     continue;
                 }
-                if self.places[head_idx].place.place_type == PlaceType::Resources {
+                if self.places[head_idx].kind.place_type == PlaceType::Resources {
                     continue;
                 }
                 if self.places[head_idx].outgoing.len() != 1 {
@@ -49,7 +49,7 @@ impl ReductionGraph {
                         break;
                     }
                     if super::preserves_transition_type(
-                        &self.transitions[transition_idx].transition.transition_type,
+                        &self.transitions[transition_idx].kind.transition_type,
                     ) {
                         valid_chain = false;
                         break;
@@ -66,7 +66,7 @@ impl ReductionGraph {
                         valid_chain = false;
                         break;
                     }
-                    if self.places[next_place].place.place_type == PlaceType::Resources {
+                    if self.places[next_place].kind.place_type == PlaceType::Resources {
                         valid_chain = false;
                         break;
                     }
@@ -81,12 +81,8 @@ impl ReductionGraph {
                         break;
                     }
                     weights.push(weight_in);
-                    transition_types.push(
-                        self.transitions[transition_idx]
-                            .transition
-                            .transition_type
-                            .clone(),
-                    );
+                    transition_types
+                        .push(self.transitions[transition_idx].kind.transition_type.clone());
 
                     transition_chain.push(transition_idx);
                     current_place = next_place;
@@ -105,7 +101,7 @@ impl ReductionGraph {
                 }
 
                 let tail_idx = *place_chain.last().unwrap();
-                if self.places[tail_idx].place.place_type == PlaceType::Resources {
+                if self.places[tail_idx].kind.place_type == PlaceType::Resources {
                     continue;
                 }
                 let consistent_weight = weights.windows(2).all(|window| window[0] == window[1]);

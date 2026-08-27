@@ -45,12 +45,12 @@ pub use cvn::{
     ResourceType, TransitionKind, VarStore,
 };
 pub use net::{
-    Arc, ArcDir, Incidence, IncidenceMatrix, Marking, Net, Place, PlaceCapacity, PlaceId, State,
-    Transition, TransitionId,
+    Arc, ArcDir, Incidence, IncidenceMatrix, Marking, Net, NetBuilder, Place, PlaceCapacity,
+    PlaceId, State, Transition, TransitionId,
 };
 pub use pt::{
-    AliasId, AtomicOrdering, PlaceType, PtBuilder, PtNet, PtPlace, PtPlaceKind, PtTransition,
-    PtTransitionKind, TransitionType, UnsafeOp, marking,
+    AliasId, AtomicOrdering, PlaceType, PtBuilder, PtNet, PtPlaceKind, PtTransitionKind,
+    TransitionType, UnsafeOp, marking,
 };
 pub use timed::{
     CONTROL_TRANSITION_CORE, INF, TimeInterval, TimedExtra, TimedNet, TimedPlaceKind, TimedState,

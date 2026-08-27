@@ -24,10 +24,10 @@ impl ReductionGraph {
                 if self.places[place_idx].removed {
                     continue;
                 }
-                if self.places[place_idx].place.place_type == PlaceType::Resources {
+                if self.places[place_idx].kind.place_type == PlaceType::Resources {
                     continue;
                 }
-                if self.places[place_idx].place.tokens != 0 {
+                if self.places[place_idx].tokens != 0 {
                     continue;
                 }
 
@@ -49,13 +49,9 @@ impl ReductionGraph {
                 // Do not merge a detector-visible transition (e.g. the merged
                 // `UnsafeAccess`) into a neutral one.
                 if super::preserves_transition_type(
-                    &self.transitions[in_transition_idx]
-                        .transition
-                        .transition_type,
+                    &self.transitions[in_transition_idx].kind.transition_type,
                 ) || super::preserves_transition_type(
-                    &self.transitions[out_transition_idx]
-                        .transition
-                        .transition_type,
+                    &self.transitions[out_transition_idx].kind.transition_type,
                 ) {
                     continue;
                 }
@@ -83,14 +79,12 @@ impl ReductionGraph {
                 };
 
                 let new_transition_type = if self.transitions[in_transition_idx]
-                    .transition
+                    .kind
                     .transition_type
-                    == self.transitions[out_transition_idx]
-                        .transition
-                        .transition_type
+                    == self.transitions[out_transition_idx].kind.transition_type
                 {
                     self.transitions[in_transition_idx]
-                        .transition
+                        .kind
                         .transition_type
                         .clone()
                 } else {

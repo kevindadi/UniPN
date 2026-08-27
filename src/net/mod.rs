@@ -15,17 +15,20 @@
 //! clock zones, …) lives in its own [`State`] `extra` payload.
 //!
 //! This module is the crate's *generic core*: [`ids`] holds the index-based
-//! identifiers, [`incidence`] the derived adjacency/incidence views, and
-//! [`firing`] the structural firing primitives every frontend shares. The
+//! identifiers, [`incidence`] the derived adjacency/incidence views, [`firing`]
+//! the structural firing primitives every frontend shares, and [`builder`] the
+//! net-plus-marking construction every frontend builds on. The
 //! frontend-specific kinds live in [`pt`](crate::pt), [`timed`](crate::timed),
 //! and [`cvn`](crate::cvn).
 
+pub mod builder;
 pub mod firing;
 pub mod ids;
 pub mod incidence;
 
 use serde::{Deserialize, Serialize};
 
+pub use builder::NetBuilder;
 pub use firing::PlaceCapacity;
 pub use ids::{PlaceId, TransitionId};
 pub use incidence::{Incidence, IncidenceMatrix};

@@ -1,5 +1,5 @@
 use crate::net::{ArcDir, Marking, PlaceId, TransitionId};
-use crate::pt::{PtBuilder, PtNet, PtPlace, PtTransition, TransitionType};
+use crate::pt::{PtBuilder, PtNet, PtPlaceKind, PtTransitionKind, TransitionType};
 
 use super::ReductionTrace;
 
@@ -9,8 +9,12 @@ pub(crate) struct ReductionGraph {
     pub(crate) merge_counter: usize,
 }
 
+/// A place while it is being reduced: the node payload plus its token count,
+/// which the reduction rules need to inspect (`Net` keeps the marking outside).
 pub(crate) struct GraphPlace {
-    pub(crate) place: PtPlace,
+    pub(crate) name: String,
+    pub(crate) tokens: usize,
+    pub(crate) kind: PtPlaceKind,
     pub(crate) originals: Vec<PlaceId>,
     pub(crate) incoming: Vec<usize>,
     pub(crate) outgoing: Vec<usize>,
@@ -18,7 +22,8 @@ pub(crate) struct GraphPlace {
 }
 
 pub(crate) struct GraphTransition {
-    pub(crate) transition: PtTransition,
+    pub(crate) name: String,
+    pub(crate) kind: PtTransitionKind,
     pub(crate) originals: Vec<TransitionId>,
     pub(crate) inputs: Vec<(usize, usize)>,
     pub(crate) outputs: Vec<(usize, usize)>,
@@ -38,13 +43,9 @@ impl ReductionGraph {
             .iter()
             .enumerate()
             .map(|(i, place)| GraphPlace {
-                place: PtPlace {
-                    name: place.name.clone(),
-                    tokens: marking.tokens(PlaceId(i)),
-                    capacity: place.kind.capacity.unwrap_or(usize::MAX),
-                    place_type: place.kind.place_type.clone(),
-                    span: place.kind.span.clone(),
-                },
+                name: place.name.clone(),
+                tokens: marking.tokens(PlaceId(i)),
+                kind: place.kind.clone(),
                 originals: vec![PlaceId(i)],
                 incoming: Vec::new(),
                 outgoing: Vec::new(),
@@ -57,10 +58,8 @@ impl ReductionGraph {
             .iter()
             .enumerate()
             .map(|(i, transition)| GraphTransition {
-                transition: PtTransition {
-                    name: transition.name.clone(),
-                    transition_type: transition.kind.transition_type.clone(),
-                },
+                name: transition.name.clone(),
+                kind: transition.kind.clone(),
                 originals: vec![TransitionId(i)],
                 inputs: Vec::new(),
                 outputs: Vec::new(),
@@ -100,14 +99,15 @@ impl ReductionGraph {
             if place.removed {
                 continue;
             }
-            let new_id = builder.add_place(place.place.clone());
+            let new_id =
+                builder.add_marked_place(place.name.clone(), place.kind.clone(), place.tokens);
             place_mapping[idx] = Some(new_id);
         }
         for (idx, transition) in self.transitions.iter().enumerate() {
             if transition.removed {
                 continue;
             }
-            let new_id = builder.add_transition(transition.transition.clone());
+            let new_id = builder.add_transition(transition.name.clone(), transition.kind.clone());
             transition_mapping[idx] = Some(new_id);
         }
 
@@ -236,7 +236,8 @@ impl GraphTransition {
         outputs: Vec<(usize, usize)>,
     ) -> Self {
         Self {
-            transition: PtTransition::new_with_transition_type(name, transition_type),
+            name,
+            kind: PtTransitionKind::new(transition_type),
             originals,
             inputs,
             outputs,

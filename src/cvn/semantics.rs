@@ -76,7 +76,7 @@ impl CvnNet {
         self.arcs_of(transition, ArcDir::Input)
             .all(|arc| match &arc.kind {
                 CvnArcKind::Guard(guard) => eval_guard(guard, &state.extra.vars).is_not_false(),
-                CvnArcKind::Plain | CvnArcKind::Update(_) => true,
+                CvnArcKind::Plain | CvnArcKind::Update(_) | CvnArcKind::DropVars(_) => true,
             })
     }
 
@@ -113,6 +113,18 @@ impl CvnNet {
             }
         }
     }
+
+    /// Drop the variables whose scope ends with this transition. Runs after the
+    /// updates, so a variable can be read on the way out and still be dropped.
+    fn drop_scoped_vars(&self, next: &mut CvnState, transition: TransitionId) {
+        for arc in self.arcs_of(transition, ArcDir::Output) {
+            if let CvnArcKind::DropVars(vars) = &arc.kind {
+                for var in vars {
+                    next.extra.vars.remove(var);
+                }
+            }
+        }
+    }
 }
 
 impl Semantics for CvnNet {
@@ -129,6 +141,7 @@ impl Semantics for CvnNet {
         self.consume_inputs(&mut next.marking, transition);
         self.produce_outputs_bounded(&mut next.marking, transition)?;
         self.apply_updates(&mut next, state, transition);
+        self.drop_scoped_vars(&mut next, transition);
         self.apply_resets(&mut next.marking, transition);
         Some(next)
     }

@@ -98,12 +98,22 @@ pub enum TransitionKind {
     Other(String),
 }
 
-/// The per-arc payload: guards (input arcs) and updates (output arcs).
+/// The per-arc payload: guards (input arcs), updates and scope ends (output
+/// arcs).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CvnArcKind {
     Plain,
     Guard(BoolExpr),
     Update(VarUpdate),
+    /// Remove these variables from the store when the transition fires — a
+    /// scope ending.
+    ///
+    /// This exists for the state space, not for the data model: a local left in
+    /// the store after its scope ends keeps distinguishing states that are
+    /// otherwise equal, so reachability would explore the same behavior many
+    /// times over. `Update` cannot express it, since setting a variable to
+    /// `Unknown` still leaves the key present.
+    DropVars(Vec<String>),
 }
 
 /// A CVN transition: the kind annotation plus source-attribution metadata used
@@ -115,6 +125,19 @@ pub struct CvnTransition {
     pub scope: Option<String>,
     pub anchors: Vec<String>,
     pub family: Option<String>,
+}
+
+impl CvnTransition {
+    /// A transition with no source attribution yet (the builder's `set_scope` /
+    /// `set_anchor` / `set_family` fill it in).
+    pub fn new(kind: TransitionKind) -> Self {
+        Self {
+            kind,
+            scope: None,
+            anchors: Vec::new(),
+            family: None,
+        }
+    }
 }
 
 /// Ordered variable store.

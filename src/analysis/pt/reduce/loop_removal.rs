@@ -28,7 +28,7 @@ impl ReductionGraph {
             if self.places[start_idx].removed {
                 continue;
             }
-            if self.places[start_idx].place.place_type == PlaceType::Resources {
+            if self.places[start_idx].kind.place_type == PlaceType::Resources {
                 continue;
             }
             if self.places[start_idx].outgoing.len() != 1 {
@@ -74,7 +74,7 @@ impl ReductionGraph {
                     valid_cycle = false;
                     break;
                 }
-                if self.places[next_place].place.place_type == PlaceType::Resources {
+                if self.places[next_place].kind.place_type == PlaceType::Resources {
                     valid_cycle = false;
                     break;
                 }
@@ -99,7 +99,7 @@ impl ReductionGraph {
 
             let all_tokens_zero = cycle_places
                 .iter()
-                .all(|idx| self.places[*idx].place.tokens == 0);
+                .all(|idx| self.places[*idx].tokens == 0);
             if !all_tokens_zero {
                 continue;
             }
