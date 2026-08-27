@@ -73,9 +73,10 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
     /// outgoing arc reads as an ending rather than as a modeling bug, which is
     /// the price of the fallback.
     pub fn is_sink(&self, place: PlaceId) -> bool {
-        !self.arcs.iter().any(|arc| {
-            arc.place == place && matches!(arc.direction, ArcDir::Input | ArcDir::Reset)
-        })
+        !self
+            .arcs
+            .iter()
+            .any(|arc| arc.place == place && matches!(arc.direction, ArcDir::Input | ArcDir::Reset))
     }
 }
 

@@ -1,0 +1,12 @@
+[package]
+name = "unipn-transfer"
+version = "0.1.0"
+edition = "2024"
+description = "Converters from external formats (ConcIR JSON, Dot, later PNML) into UniPN nets"
+license = "MIT"
+repository = "https://github.com/kevindadi/UniPN"
+
+[dependencies]
+unipn = { path = ".." }
+serde.workspace = true
+serde_json.workspace = true

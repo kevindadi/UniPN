@@ -148,7 +148,10 @@ fn a_zero_capacity_channel_refuses_a_lone_send() {
         let mut b = CvnBuilder::new();
         let ready = b.add_place("ready", PlaceKind::Control(ControlSub::BasicBlock));
         let sent = b.add_place("sent", PlaceKind::Control(ControlSub::FunctionEnd));
-        let chan = b.add_place("ch", PlaceKind::Resource(ResourceType::Channel { capacity }));
+        let chan = b.add_place(
+            "ch",
+            PlaceKind::Resource(ResourceType::Channel { capacity }),
+        );
         let send = b.add_transition("send", CvnTransition::new(TransitionKind::Send));
         b.add_input_arc(ready, send, 1, BoolExpr::True);
         b.add_output_arc(send, sent, 1, None);
