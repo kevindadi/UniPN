@@ -2,8 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::ids::TransitionId;
-use crate::net::Marking;
+use crate::net::{Marking, TransitionId};
 use crate::timed::TimedNet;
 
 use super::state_class::{TransitionSet, contains};

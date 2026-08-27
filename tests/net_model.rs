@@ -1,6 +1,6 @@
 use unipn::analysis::{AnalysisConfig, NetLike, SearchStrategy, explore, find_deadlocks};
-use unipn::expr::{BoolExpr, CmpOp, Expr, Val, VarUpdate};
-use unipn::model::{ControlSub, PlaceKind, ResourceType, TransitionKind};
+use unipn::cvn::expr::{BoolExpr, CmpOp, Expr, Val, VarUpdate};
+use unipn::cvn::kinds::{ControlSub, PlaceKind, ResourceType, TransitionKind};
 use unipn::net::{ArcDir, Marking};
 use unipn::pt::{PlaceType, PtPlaceKind, PtTransitionKind, TransitionType};
 use unipn::{

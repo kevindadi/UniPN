@@ -7,8 +7,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::analysis::NetLike;
-use crate::ids::{PlaceId, TransitionId};
-use crate::net::{ArcDir, Marking};
+use crate::net::{ArcDir, Marking, PlaceId, TransitionId};
 use crate::pt::{PlaceType, PtNet, TransitionType};
 
 /// A per-state view of a single place.

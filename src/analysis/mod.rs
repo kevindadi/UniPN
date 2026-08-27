@@ -5,9 +5,11 @@
 //! enabled transitions); whether a blocked state is a *deadlock* is decided by
 //! the caller via [`find_deadlocks`].
 //!
-//! P/T analysis lives in [`pt`]. Timed (DBM/state-class) analysis is
-//! `analysis::timed` when the `timed` feature is enabled.
+//! P/T analysis lives in [`pt`] and CVN analysis in [`cvn`]. Timed
+//! (DBM/state-class) analysis is `analysis::timed` when the `timed` feature is
+//! enabled.
 
+pub mod cvn;
 pub mod pt;
 #[cfg(feature = "timed")]
 pub mod timed;
@@ -15,7 +17,7 @@ pub mod timed;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
-use crate::ids::TransitionId;
+use crate::net::TransitionId;
 
 /// The firing contract a net must satisfy to be analyzed.
 ///

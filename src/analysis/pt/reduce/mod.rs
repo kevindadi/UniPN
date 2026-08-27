@@ -4,8 +4,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::ids::{PlaceId, TransitionId};
-use crate::net::Marking;
+use crate::net::{Marking, PlaceId, TransitionId};
 use crate::pt::{PtNet, TransitionType};
 
 mod graph;

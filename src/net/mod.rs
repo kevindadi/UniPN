@@ -13,12 +13,19 @@
 //! `Vec<usize>` (index = place id, value = token count) kept **separate** from
 //! the net. Anything a net needs beyond the token counts (variable stores,
 //! clock zones, …) lives in its own [`State`] `extra` payload.
+//!
+//! This module is the crate's *generic core*: [`ids`] holds the index-based
+//! identifiers and [`incidence`] the derived adjacency/incidence views. The
+//! frontend-specific kinds live in [`pt`](crate::pt), [`timed`](crate::timed),
+//! and [`cvn`](crate::cvn).
+
+pub mod ids;
+pub mod incidence;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{PlaceId, TransitionId};
-
-pub use crate::incidence::{Incidence, IncidenceMatrix};
+pub use ids::{PlaceId, TransitionId};
+pub use incidence::{Incidence, IncidenceMatrix};
 
 /// A place node: fixed `id` + `name`, plus a domain-specific `kind`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

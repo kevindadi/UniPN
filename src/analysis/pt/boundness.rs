@@ -5,8 +5,7 @@ use std::collections::VecDeque;
 use std::fmt;
 
 use crate::analysis::NetLike;
-use crate::ids::{PlaceId, TransitionId};
-use crate::net::Marking;
+use crate::net::{Marking, PlaceId, TransitionId};
 use crate::pt::PtNet;
 
 /// Result of a boundness check.

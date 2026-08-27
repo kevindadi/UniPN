@@ -1,4 +1,4 @@
-use crate::ids::PlaceId;
+use crate::net::PlaceId;
 use crate::pt::{PlaceType, TransitionType};
 
 use super::ReductionStep;

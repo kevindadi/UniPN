@@ -1,7 +1,17 @@
-//! CVN (Concurrency Verification Net) kind annotations — ConcPlanVerify's
-//! lowering target. These are the `PK`/`TK`/`AK` payloads for [`crate::net::Net`].
+//! CVN kind payloads plus the net and state aliases.
+//!
+//! [`PlaceKind`], [`CvnTransition`] and [`CvnArcKind`] are the `PK` / `TK` /
+//! `AK` arguments of [`Net`](crate::net::Net) for ConcPlanVerify's lowering
+//! target. Guards live on input arcs, variable updates on output arcs, and the
+//! variable store is the state's `extra` payload.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+
+use crate::net::{Net, State};
+
+use super::expr::{BoolExpr, Val, VarUpdate};
 
 /// Place kind (two classes: control flow / resource).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -87,3 +97,39 @@ pub enum TransitionKind {
     TestPoint,
     Other(String),
 }
+
+/// The per-arc payload: guards (input arcs) and updates (output arcs).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CvnArcKind {
+    Plain,
+    Guard(BoolExpr),
+    Update(VarUpdate),
+}
+
+/// A CVN transition: the kind annotation plus source-attribution metadata used
+/// by the repair layer (scope = source function, anchors = ConcIR sids, family
+/// = disjunctive OR group).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CvnTransition {
+    pub kind: TransitionKind,
+    pub scope: Option<String>,
+    pub anchors: Vec<String>,
+    pub family: Option<String>,
+}
+
+/// Ordered variable store.
+pub type VarStore = BTreeMap<String, Val>;
+
+/// The CVN state extra: the variable store plus bounded-Int domains (an update
+/// leaving a domain disables the transition, keeping the state space finite).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CvnExtra {
+    pub vars: VarStore,
+    pub domains: BTreeMap<String, (i64, i64)>,
+}
+
+/// The CVN net.
+pub type CvnNet = Net<PlaceKind, CvnTransition, CvnArcKind>;
+
+/// The CVN state: marking + variable store + bounded-Int domains.
+pub type CvnState = State<CvnExtra>;

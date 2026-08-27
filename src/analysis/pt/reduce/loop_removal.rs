@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::ids::{PlaceId, TransitionId};
+use crate::net::{PlaceId, TransitionId};
 use crate::pt::PlaceType;
 
 use super::ReductionStep;

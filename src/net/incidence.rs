@@ -39,8 +39,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{PlaceId, TransitionId};
-use crate::net::{ArcDir, Net};
+use crate::net::{ArcDir, Net, PlaceId, TransitionId};
 
 /// Aggregated adjacency of a net, keyed by contiguous place/transition ids.
 #[derive(Clone, Debug, PartialEq, Eq)]

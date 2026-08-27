@@ -6,8 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::ids::{PlaceId, TransitionId};
-use crate::net::Marking;
+use crate::net::{Marking, PlaceId, TransitionId};
 use crate::timed::{INF, TimedNet};
 
 use super::canonicalization::{CanonicalizationMode, can_merge_into, check_equality};

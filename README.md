@@ -7,7 +7,7 @@ UniPN is a Rust library for representing a **single generic Petri-net model** sh
 One generic net, three instantiations:
 
 ```rust
-// src/net.rs — the generic model
+// src/net/mod.rs — the generic model
 pub struct Place<K = ()>     { id: PlaceId, name: String, kind: K }
 pub struct Transition<K = ()> { id: TransitionId, name: String, kind: K }
 pub struct Arc<K = ()>       { place, transition, direction: ArcDir, weight: usize, kind: K }
@@ -22,13 +22,30 @@ The common structure (id, name, direction, weight) is fixed; the domain-specific
 | --- | --- | --- | --- | --- |
 | ConcBugDect (MIR→PN) | `pt::PtNet` | `PtPlaceKind` | `PtTransitionKind` | `()` |
 | PTPN (priority timed) | `timed::TimedNet` | `TimedPlaceKind` | `TimedTransitionKind` | `()` |
-| ConcPlanVerify (CVN) | `cvn::CvnNet` | `model::PlaceKind` | `model::TransitionKind` | `cvn::CvnArcKind` |
+| ConcPlanVerify (CVN) | `cvn::CvnNet` | `cvn::PlaceKind` | `cvn::TransitionKind` | `cvn::CvnArcKind` |
 
 The marking is kept separate from the net; anything a net needs beyond token counts (a CVN variable store, a timed clock zone, …) lives in its own `State` `extra` payload.
+
+## Source layout
+
+Three layers: the generic core, one directory per frontend, and the analyses.
+
+```text
+src/
+  net/      mod.rs (the model) + ids.rs + incidence.rs
+  pt/       kinds.rs + semantics.rs + builder.rs + dot.rs
+  timed/    kinds.rs + semantics.rs + interval.rs
+  cvn/      kinds.rs + semantics.rs + builder.rs + expr.rs + dot.rs
+  analysis/ mod.rs (NetLike + explore) + pt/ + cvn/ + timed/
+```
+
+Within a frontend directory `kinds.rs` holds the payloads and the net alias, `semantics.rs` holds that net's firing, and each `mod.rs` re-exports flatly — so `unipn::pt::PtNet` and the crate-root re-exports (`unipn::PtNet`, `unipn::PlaceId`, …) do not depend on which file a symbol lives in.
 
 ## Analysis
 
 Analysis is not part of the model. The [`analysis`](src/analysis/mod.rs) module provides the minimal firing contract [`NetLike`] plus `explore` (BFS/DFS reachability) and `find_deadlocks`. The explorer only reports *blocked* states; the caller decides what counts as a deadlock.
+
+Each frontend then has its own analysis submodule: `analysis::pt` (reachability graph, boundness, reduction), `analysis::cvn` (deadlock, dead transitions, conflict sets), and `analysis::timed` (state classes).
 
 Timed (DBM / state-class) analysis is optional:
 

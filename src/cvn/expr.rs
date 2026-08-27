@@ -1,7 +1,8 @@
-//! Values, expressions and guards (the optional data model).
+//! Values, expressions and guards — the CVN data model.
 //!
-//! A pure P/T net does not model data (`State::vars = None`); frontends that do
-//! (ConcIR→CVN) use this module for input-arc guards and output-arc updates.
+//! A pure P/T net does not model data. The CVN keeps a variable store in its
+//! state `extra` payload and uses this module for input-arc guards
+//! ([`BoolExpr`]) and output-arc updates ([`VarUpdate`]).
 
 use std::collections::BTreeMap;
 use std::fmt;

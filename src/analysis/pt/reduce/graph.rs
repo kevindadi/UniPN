@@ -1,5 +1,4 @@
-use crate::ids::{PlaceId, TransitionId};
-use crate::net::{ArcDir, Marking};
+use crate::net::{ArcDir, Marking, PlaceId, TransitionId};
 use crate::pt::{PtBuilder, PtNet, PtPlace, PtTransition, TransitionType};
 
 use super::ReductionTrace;
