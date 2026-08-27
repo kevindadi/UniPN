@@ -1,0 +1,3 @@
+[submodule "third_party/ConcIR"]
+	path = third_party/ConcIR
+	url = https://github.com/kevindadi/ConcIR.git
