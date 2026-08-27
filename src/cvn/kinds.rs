@@ -1,7 +1,7 @@
 //! CVN kind payloads plus the net and state aliases.
 //!
 //! [`PlaceKind`], [`CvnTransition`] and [`CvnArcKind`] are the `PK` / `TK` /
-//! `AK` arguments of [`Net`](crate::net::Net) for ConcPlanVerify's lowering
+//! `AK` arguments of [`Net`] for ConcPlanVerify's lowering
 //! target. Guards live on input arcs, variable updates on output arcs, and the
 //! variable store is the state's `extra` payload.
 

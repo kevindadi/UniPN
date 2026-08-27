@@ -82,6 +82,8 @@ impl PtNet {
     }
 
     /// `Result`-shaped firing (mirrors ConcBugDect's `fire_transition`).
+    // The `()` error type is part of the mirrored ConcBugDect signature.
+    #[allow(clippy::result_unit_err)]
     pub fn fire_transition(
         &self,
         marking: &Marking,

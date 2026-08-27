@@ -1,8 +1,8 @@
-//! Adjacency view and ordinary incidence matrix of a [`Net`](crate::net::Net).
+//! Adjacency view and ordinary incidence matrix of a [`Net`].
 //!
 //! The view is a derived snapshot: it aggregates parallel arcs of the same
 //! direction and indexes endpoints by place/transition id. It does **not**
-//! live inside [`Net`](crate::net::Net), because the net's `arcs` field is
+//! live inside [`Net`], because the net's `arcs` field is
 //! public and can change after construction.
 //!
 //! # What the matrix captures
@@ -13,8 +13,8 @@
 //! C[p, t] = w_post(p, t) − w_pre(p, t)
 //! ```
 //!
-//! using only [`ArcDir::Input`](crate::net::ArcDir::Input) and
-//! [`ArcDir::Output`](crate::net::ArcDir::Output) weights. Read, inhibitor,
+//! using only [`ArcDir::Input`] and
+//! [`ArcDir::Output`] weights. Read, inhibitor,
 //! and reset arcs are indexed on [`Incidence`] but do not enter `C`.
 //!
 //! This is enough for P-invariants, T-invariants, and the marking equation
