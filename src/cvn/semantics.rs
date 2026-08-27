@@ -13,14 +13,20 @@ use super::expr::{ConcreteVal, Val, eval_expr, eval_guard};
 use super::kinds::{ControlSub, CvnArcKind, CvnNet, CvnState, PlaceKind, ResourceType};
 
 /// Resource places carry the capacity (Mutex=1, RwLock=max_readers,
-/// Semaphore=count); control places and channels are unbounded.
+/// Semaphore=count, Channel=slot count); control places and condvars are
+/// unbounded.
+///
+/// A `Channel { capacity: 0 }` therefore has capacity zero, and since the CVN
+/// *rejects* an over-capacity firing rather than clamping it, a send into it can
+/// never complete on its own — which is what a rendezvous means.
 impl PlaceCapacity for PlaceKind {
     fn capacity(&self) -> Option<usize> {
         match self {
             Self::Resource(ResourceType::Mutex) => Some(1),
             Self::Resource(ResourceType::RwLock { max_readers }) => Some(*max_readers),
             Self::Resource(ResourceType::Semaphore { count }) => Some(*count),
-            _ => None,
+            Self::Resource(ResourceType::Channel { capacity }) => Some(*capacity),
+            Self::Resource(ResourceType::Condvar) | Self::Control(_) => None,
         }
     }
 }

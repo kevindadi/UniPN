@@ -141,6 +141,35 @@ fn cvn_resource_capacity_blocks_second_lock() {
 }
 
 #[test]
+fn a_zero_capacity_channel_refuses_a_lone_send() {
+    // A rendezvous channel has nowhere to park a message, so a send that is not
+    // matched by a receive must be rejected outright rather than clamped.
+    let build = |capacity: usize| {
+        let mut b = CvnBuilder::new();
+        let ready = b.add_place("ready", PlaceKind::Control(ControlSub::BasicBlock));
+        let sent = b.add_place("sent", PlaceKind::Control(ControlSub::FunctionEnd));
+        let chan = b.add_place("ch", PlaceKind::Resource(ResourceType::Channel { capacity }));
+        let send = b.add_transition("send", CvnTransition::new(TransitionKind::Send));
+        b.add_input_arc(ready, send, 1, BoolExpr::True);
+        b.add_output_arc(send, sent, 1, None);
+        b.add_output_arc(send, chan, 1, None);
+        b.set_initial_tokens(ready, 1);
+        let (net, initial) = b.build();
+        (net, initial, send, chan)
+    };
+
+    // Capacity 0: structurally enabled, but the firing itself is refused.
+    let (net, initial, send, _) = build(0);
+    assert_eq!(net.enabled(&initial), vec![send]);
+    assert!(net.fire(&initial, send).is_none());
+
+    // Capacity 1: the same send goes through and the slot is taken.
+    let (net, initial, send, chan) = build(1);
+    let fired = net.fire(&initial, send).unwrap();
+    assert_eq!(fired.marking.tokens(chan), 1);
+}
+
+#[test]
 fn dropping_a_dead_variable_merges_equivalent_states() {
     // Two branches write different values to `x` and then converge. Once `x`
     // is out of scope the two final states are the same behavior, but a store
@@ -317,17 +346,26 @@ fn place_capacity_is_uniform_across_frontends() {
 
 #[test]
 fn place_roles_and_the_deadlock_definition_are_shared() {
-    // The same three-place shape twice: a control point, a free resource, a
-    // thread end.
+    // The same shape twice: a control point that takes the mutex and runs to a
+    // function end. The control point needs its outgoing arc, or it would read
+    // as a structural sink and therefore as an ending.
     let mut pt = PtNet::new();
     let pt_ctrl = pt.add_place("bb", PtPlaceKind::new(PlaceType::BasicBlock));
     let pt_res = pt.add_place("m", PtPlaceKind::new(PlaceType::Resources));
     let pt_end = pt.add_place("end", PtPlaceKind::new(PlaceType::FunctionEnd));
+    let pt_t = pt.add_transition("lock", PtTransitionKind::new(TransitionType::Lock(0)));
+    pt.add_arc(pt_ctrl, pt_t, ArcDir::Input, 1, ());
+    pt.add_arc(pt_res, pt_t, ArcDir::Input, 1, ());
+    pt.add_arc(pt_end, pt_t, ArcDir::Output, 1, ());
 
     let mut b = CvnBuilder::new();
     let cvn_ctrl = b.add_place("bb", PlaceKind::Control(ControlSub::BasicBlock));
     let cvn_res = b.add_place("m", PlaceKind::Resource(ResourceType::Mutex));
     let cvn_end = b.add_place("end", PlaceKind::Control(ControlSub::FunctionEnd));
+    let cvn_t = b.add_transition("lock", CvnTransition::new(TransitionKind::Lock));
+    b.add_arc(cvn_ctrl, cvn_t, ArcDir::Input, 1, CvnArcKind::Plain);
+    b.add_arc(cvn_res, cvn_t, ArcDir::Input, 1, CvnArcKind::Plain);
+    b.add_arc(cvn_end, cvn_t, ArcDir::Output, 1, CvnArcKind::Plain);
     let (cvn, _) = b.build();
 
     assert!(pt.is_resource(pt_res) && cvn.is_resource(cvn_res));
@@ -338,13 +376,34 @@ fn place_roles_and_the_deadlock_definition_are_shared() {
     // A finished thread next to a free mutex is not a deadlock; a token
     // stranded on the control point is. Both frontends now say so.
     let done = Marking::new(vec![0, 1, 1]);
-    let stuck = Marking::new(vec![1, 1, 0]);
+    let stuck = Marking::new(vec![1, 0, 0]);
     assert!(!pt.is_deadlock(&done) && !cvn.is_deadlock(&done));
     assert!(pt.is_deadlock(&stuck) && cvn.is_deadlock(&stuck));
 
     let all = Marking::new(vec![1, 1, 1]);
     assert_eq!(pt.blocked_places(&all), vec![pt_ctrl]);
     assert_eq!(cvn.blocked_places(&all), vec![cvn_ctrl]);
+}
+
+#[test]
+fn an_unannotated_exit_is_terminal_because_it_is_a_sink() {
+    // A detached thread's last place: the lowering never labelled it, but no arc
+    // can take the token anywhere, so it is an ending rather than a deadlock.
+    let mut net = PtNet::new();
+    let start = net.add_place("bb0", PtPlaceKind::new(PlaceType::BasicBlock));
+    let stranded = net.add_place("bb1", PtPlaceKind::new(PlaceType::BasicBlock));
+    let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
+    net.add_arc(start, t, ArcDir::Input, 1, ());
+    net.add_arc(stranded, t, ArcDir::Output, 1, ());
+
+    assert!(!net.is_sink(start) && net.is_sink(stranded));
+    assert!(net.is_terminal(stranded));
+    assert!(!net.is_deadlock(&Marking::new(vec![0, 1])));
+
+    // A read arc does not consume, so it does not stop a place being a sink.
+    let observer = net.add_transition("obs", PtTransitionKind::new(TransitionType::Normal));
+    net.add_arc(stranded, observer, ArcDir::Read, 1, ());
+    assert!(net.is_sink(stranded));
 }
 
 #[test]

@@ -15,7 +15,7 @@ fn relay_net() -> (PtNet, Marking) {
 }
 
 #[test]
-fn reachability_graph_builds_and_reports_deadlock() {
+fn reachability_graph_builds_and_reports_blocked_states() {
     let (net, marking) = relay_net();
     let graph = StateGraph::from_net(&net, marking);
 
@@ -28,14 +28,39 @@ fn reachability_graph_builds_and_reports_deadlock() {
     let node = graph.node(blocked);
     assert_eq!(node.marking.tokens(PlaceId(1)), 1);
 
-    // p1 is a BasicBlock, so the token stranded there is a real deadlock.
-    assert_eq!(graph.deadlock_states(&net), vec![blocked]);
+    // p1 has no outgoing arc at all, so the relay simply ran out of net. Being
+    // blocked there is an ending, not a deadlock.
+    assert!(graph.deadlock_states(&net).is_empty());
 
     let stats = graph.stats();
     assert_eq!(stats.state_count, 2);
     assert_eq!(stats.edge_count, 1);
     assert_eq!(stats.blocked_count, 1);
     assert!(!stats.truncated);
+}
+
+#[test]
+fn a_token_stranded_before_a_firable_transition_is_a_deadlock() {
+    // p0 relays to p1, but leaving p1 also needs a token on p2 that nothing ever
+    // produces. p1 has an outgoing arc, so the token there really is stuck.
+    let mut net = PtNet::new();
+    let p0 = net.add_place("p0", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p1 = net.add_place("p1", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p2 = net.add_place("p2", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p3 = net.add_place("p3", PtPlaceKind::new(PlaceType::FunctionEnd));
+    let relay = net.add_transition("relay", PtTransitionKind::new(TransitionType::Normal));
+    let join = net.add_transition("join", PtTransitionKind::new(TransitionType::Normal));
+    net.add_arc(p0, relay, ArcDir::Input, 1, ());
+    net.add_arc(p1, relay, ArcDir::Output, 1, ());
+    net.add_arc(p1, join, ArcDir::Input, 1, ());
+    net.add_arc(p2, join, ArcDir::Input, 1, ());
+    net.add_arc(p3, join, ArcDir::Output, 1, ());
+
+    let graph = StateGraph::from_net(&net, Marking::new(vec![1, 0, 0, 0]));
+
+    let blocked = *graph.blocked.iter().next().unwrap();
+    assert_eq!(graph.node(blocked).marking.tokens(p1), 1);
+    assert_eq!(graph.deadlock_states(&net), vec![blocked]);
 }
 
 #[test]

@@ -6,6 +6,15 @@ description = "A generic Petri-net model shared by P/T, timed, and colored verif
 license = "MIT"
 repository = "https://github.com/kevindadi/UniPN"
 
+# `unipn` stays the root package so a downstream `path = "../UniPN"` keeps
+# resolving; the converters are members alongside it.
+[workspace]
+members = ["transfer"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
 [features]
 default = ["timed"]
 # DBM / state-class reachability (`analysis::timed`). The timed *model*
@@ -17,10 +26,10 @@ timed = []
 all-features = true
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde.workspace = true
 
 [dev-dependencies]
-serde_json = "1"
+serde_json.workspace = true
 
 [[test]]
 name = "timed_analysis"

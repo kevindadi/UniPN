@@ -54,13 +54,22 @@ pub enum ControlSub {
     WaitPoint,
 }
 
-/// Resource type (determines the initial-token semantics).
+/// Resource type (determines the initial-token semantics and the capacity).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ResourceType {
     Mutex,
-    RwLock { max_readers: usize },
-    Semaphore { count: usize },
-    Channel,
+    RwLock {
+        max_readers: usize,
+    },
+    Semaphore {
+        count: usize,
+    },
+    /// A channel with `capacity` in-flight payload slots. `0` is a rendezvous:
+    /// there is nowhere to put a message, so a send can only fire together with
+    /// a receive.
+    Channel {
+        capacity: usize,
+    },
     Condvar,
 }
 

@@ -14,7 +14,7 @@ pub fn to_dot(net: &CvnNet) -> String {
             PlaceKind::Resource(ResourceType::Mutex) => "mutex",
             PlaceKind::Resource(ResourceType::RwLock { .. }) => "rwlock",
             PlaceKind::Resource(ResourceType::Semaphore { .. }) => "sem",
-            PlaceKind::Resource(ResourceType::Channel) => "ch",
+            PlaceKind::Resource(ResourceType::Channel { .. }) => "ch",
             PlaceKind::Resource(ResourceType::Condvar) => "cv",
             PlaceKind::Control(ControlSub::FunctionEnd) => "end",
             PlaceKind::Control(ControlSub::WaitPoint) => "wait",
