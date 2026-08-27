@@ -32,14 +32,38 @@ Three layers: the generic core, one directory per frontend, and the analyses.
 
 ```text
 src/
-  net/      mod.rs (the model) + ids.rs + incidence.rs
+  net/      mod.rs (the model) + ids.rs + incidence.rs + firing.rs
   pt/       kinds.rs + semantics.rs + builder.rs + dot.rs
   timed/    kinds.rs + semantics.rs + interval.rs
   cvn/      kinds.rs + semantics.rs + builder.rs + expr.rs + dot.rs
-  analysis/ mod.rs (NetLike + explore) + pt/ + cvn/ + timed/
+  analysis/ mod.rs (Semantics + NetLike + explore) + pt/ + cvn/ + timed/
 ```
 
 Within a frontend directory `kinds.rs` holds the payloads and the net alias, `semantics.rs` holds that net's firing, and each `mod.rs` re-exports flatly — so `unipn::pt::PtNet` and the crate-root re-exports (`unipn::PtNet`, `unipn::PlaceId`, …) do not depend on which file a symbol lives in.
+
+## Firing
+
+Whatever follows from the arc structure alone is shared, in [`net::firing`](src/net/firing.rs): `structurally_enabled` (parallel input weights summed per place, read arcs satisfied, inhibitor arcs clear), `consume_inputs`, `apply_resets`, and the capacity lookup behind the `PlaceCapacity` trait.
+
+What a frontend decides for itself is its `Semantics` impl — two methods, `can_fire` and `fire_enabled`; `NetLike` is then derived for it. The capacity policy is the clearest example of a genuine difference: `PtNet` clamps an over-capacity place, `TimedNet` clamps and records the overflow, and `CvnNet` rejects the firing.
+
+```rust
+impl Semantics for PtNet {
+    type State = Marking;
+
+    fn can_fire(&self, state: &Marking, t: TransitionId) -> bool {
+        self.structurally_enabled(state, t)
+    }
+
+    fn fire_enabled(&self, state: &Marking, t: TransitionId) -> Option<Marking> {
+        let mut next = state.clone();
+        self.consume_inputs(&mut next, t);
+        self.produce_outputs_clamped(&mut next, t);
+        self.apply_resets(&mut next, t);
+        Some(next)
+    }
+}
+```
 
 ## Analysis
 

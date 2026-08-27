@@ -39,7 +39,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::net::{ArcDir, Net, PlaceId, TransitionId};
+use crate::net::{ArcDir, Net, PlaceId, TransitionId, accumulate};
 
 /// Aggregated adjacency of a net, keyed by contiguous place/transition ids.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,24 +83,24 @@ impl Incidence {
             }
             match arc.direction {
                 ArcDir::Input => {
-                    push_place(&mut inc.pre[t], arc.place, arc.weight);
-                    push_transition(&mut inc.consumers[p], arc.transition, arc.weight);
+                    accumulate(&mut inc.pre[t], arc.place, arc.weight);
+                    accumulate(&mut inc.consumers[p], arc.transition, arc.weight);
                 }
                 ArcDir::Output => {
-                    push_place(&mut inc.post[t], arc.place, arc.weight);
-                    push_transition(&mut inc.producers[p], arc.transition, arc.weight);
+                    accumulate(&mut inc.post[t], arc.place, arc.weight);
+                    accumulate(&mut inc.producers[p], arc.transition, arc.weight);
                 }
                 ArcDir::Read => {
-                    push_place(&mut inc.read[t], arc.place, arc.weight);
-                    push_transition(&mut inc.readers[p], arc.transition, arc.weight);
+                    accumulate(&mut inc.read[t], arc.place, arc.weight);
+                    accumulate(&mut inc.readers[p], arc.transition, arc.weight);
                 }
                 ArcDir::Inhibitor => {
-                    push_place(&mut inc.inhibitor[t], arc.place, arc.weight);
-                    push_transition(&mut inc.inhibitors_of[p], arc.transition, arc.weight);
+                    accumulate(&mut inc.inhibitor[t], arc.place, arc.weight);
+                    accumulate(&mut inc.inhibitors_of[p], arc.transition, arc.weight);
                 }
                 ArcDir::Reset => {
-                    push_place(&mut inc.reset[t], arc.place, arc.weight);
-                    push_transition(&mut inc.resets_of[p], arc.transition, arc.weight);
+                    accumulate(&mut inc.reset[t], arc.place, arc.weight);
+                    accumulate(&mut inc.resets_of[p], arc.transition, arc.weight);
                 }
             }
         }
@@ -308,22 +308,6 @@ impl std::ops::Index<(PlaceId, TransitionId)> for IncidenceMatrix {
             self.cols
         );
         &self.entries[p * self.cols + t]
-    }
-}
-
-fn push_place(list: &mut Vec<(PlaceId, usize)>, place: PlaceId, weight: usize) {
-    if let Some((_, total)) = list.iter_mut().find(|(p, _)| *p == place) {
-        *total = total.saturating_add(weight);
-    } else {
-        list.push((place, weight));
-    }
-}
-
-fn push_transition(list: &mut Vec<(TransitionId, usize)>, transition: TransitionId, weight: usize) {
-    if let Some((_, total)) = list.iter_mut().find(|(t, _)| *t == transition) {
-        *total = total.saturating_add(weight);
-    } else {
-        list.push((transition, weight));
     }
 }
 

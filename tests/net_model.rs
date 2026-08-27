@@ -192,6 +192,51 @@ fn timed_net_clamps_capacity_and_stays_enabled() {
 }
 
 #[test]
+fn timed_net_aggregates_parallel_inputs_and_honours_inhibitor() {
+    let mut net = TimedNet::new();
+    let p = net.add_place("p", timed_place(None, false));
+    let block = net.add_place("block", timed_place(None, false));
+    let t = net.add_transition("t", timed_transition(0, 0));
+    // Two parallel input arcs on the same place: the demand is their sum.
+    net.add_arc(p, t, ArcDir::Input, 2, ());
+    net.add_arc(p, t, ArcDir::Input, 3, ());
+    net.add_arc(block, t, ArcDir::Inhibitor, 1, ());
+
+    let state = |p_tokens: usize, block_tokens: usize| {
+        TimedState::from(Marking::new(vec![p_tokens, block_tokens]))
+    };
+
+    // 4 tokens do not cover the aggregated demand of 5.
+    assert!(net.enabled(&state(4, 0)).is_empty());
+    assert_eq!(net.enabled(&state(5, 0)), vec![t]);
+    // The inhibitor arc blocks once `block` holds a token.
+    assert!(net.enabled(&state(5, 1)).is_empty());
+
+    // Firing consumes both parallel weights.
+    let fired = net.fire(&Marking::new(vec![5, 0]), t);
+    assert_eq!(fired.tokens(p), 0);
+}
+
+#[test]
+fn place_capacity_is_uniform_across_frontends() {
+    let (pt, _) = pt_relay();
+    // P/T and timed places report their capacity field; CVN derives it.
+    assert_eq!(pt.capacity_of(PlaceId(0)), None);
+
+    let mut b = CvnBuilder::new();
+    let mutex = b.add_place("m", PlaceKind::Resource(ResourceType::Mutex));
+    let sem = b.add_place(
+        "s",
+        PlaceKind::Resource(ResourceType::Semaphore { count: 3 }),
+    );
+    let ctrl = b.add_place("c", PlaceKind::Control(ControlSub::Statement));
+    let (cvn, _) = b.build();
+    assert_eq!(cvn.capacity_of(mutex), Some(1));
+    assert_eq!(cvn.capacity_of(sem), Some(3));
+    assert_eq!(cvn.capacity_of(ctrl), None);
+}
+
+#[test]
 fn bf_vs_dfs_agree_on_reachable_state_count() {
     let (net, initial) = cvn_counter();
     let bfs = explore(&net, initial.clone(), &AnalysisConfig::default());

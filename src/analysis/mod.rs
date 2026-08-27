@@ -17,13 +17,16 @@ pub mod timed;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
-use crate::net::TransitionId;
+use crate::net::{Net, TransitionId};
 
 /// The firing contract a net must satisfy to be analyzed.
 ///
 /// Each net (P/T, timed, CVN) supplies its own `enabled`/`fire` and its own
 /// `State` (marking + per-net extra data). The model itself is not abstracted
 /// here — only this minimal execution surface.
+///
+/// Frontends do not implement this directly: implement [`Semantics`] and the
+/// impl below derives `NetLike` for any [`Net`].
 pub trait NetLike {
     type State: Clone + Eq + Hash;
 
@@ -35,6 +38,59 @@ pub trait NetLike {
 
     /// Fire `transition` from `state`; `None` if it is not enabled.
     fn fire(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State>;
+}
+
+/// A net's firing semantics: the two decisions a frontend makes for itself.
+///
+/// Everything else in [`NetLike`] — the place and transition counts, and the
+/// scan that turns `can_fire` into an enabled set — is identical for all three
+/// frontends and is supplied by the blanket impl below. The structural half of
+/// enabling is shared too, via
+/// [`Net::structurally_enabled`](crate::net::Net::structurally_enabled) and the
+/// other primitives in [`net::firing`](crate::net::firing); an implementation
+/// only adds what is specific to it (CVN guards and variable domains) and picks
+/// how a capacity violation behaves.
+pub trait Semantics {
+    type State: Clone + Eq + Hash;
+
+    /// Whether `transition` may fire from `state`.
+    fn can_fire(&self, state: &Self::State, transition: TransitionId) -> bool;
+
+    /// Fire a transition that [`Semantics::can_fire`] has already accepted.
+    ///
+    /// Returns `None` when a firing is rejected for a reason enabling cannot
+    /// see — the CVN refuses to push a resource place past its capacity.
+    fn fire_enabled(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State>;
+}
+
+impl<PK, TK, AK> NetLike for Net<PK, TK, AK>
+where
+    Self: Semantics,
+{
+    type State = <Self as Semantics>::State;
+
+    fn num_places(&self) -> usize {
+        self.places.len()
+    }
+
+    fn num_transitions(&self) -> usize {
+        self.transitions.len()
+    }
+
+    fn enabled(&self, state: &Self::State) -> Vec<TransitionId> {
+        self.transitions
+            .iter()
+            .filter(|t| self.can_fire(state, t.id))
+            .map(|t| t.id)
+            .collect()
+    }
+
+    fn fire(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State> {
+        if !self.can_fire(state, transition) {
+            return None;
+        }
+        self.fire_enabled(state, transition)
+    }
 }
 
 /// Search strategy.

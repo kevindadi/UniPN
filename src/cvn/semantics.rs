@@ -1,27 +1,31 @@
 //! CVN firing semantics.
 //!
-//! Enabling is gated by input-arc guards and by the bounded-Int domains of the
-//! variable store; firing shuffles tokens, applies output-arc updates, and
-//! rejects a firing that would exceed a resource place's capacity.
+//! On top of structural enabling the CVN adds two predicates of its own:
+//! input-arc guards must not evaluate to false, and an output-arc update must
+//! not leave its variable's bounded Int domain (which is what keeps the state
+//! space finite). Firing applies the updates and, unlike the other two nets,
+//! *rejects* a firing that would push a resource place past its capacity.
 
-use crate::analysis::NetLike;
-use crate::net::{ArcDir, PlaceId, TransitionId};
+use crate::analysis::Semantics;
+use crate::net::{ArcDir, PlaceCapacity, PlaceId, TransitionId};
 
 use super::expr::{ConcreteVal, Val, eval_expr, eval_guard};
 use super::kinds::{ControlSub, CvnArcKind, CvnNet, CvnState, PlaceKind, ResourceType};
 
-impl CvnNet {
-    /// Resource capacity derived from a place kind (Mutex=1, RwLock=max_readers,
-    /// Semaphore=count; control places and channels are unbounded).
-    pub fn capacity_of(&self, place: PlaceId) -> Option<usize> {
-        match &self.place(place)?.kind {
-            PlaceKind::Resource(ResourceType::Mutex) => Some(1),
-            PlaceKind::Resource(ResourceType::RwLock { max_readers }) => Some(*max_readers),
-            PlaceKind::Resource(ResourceType::Semaphore { count }) => Some(*count),
+/// Resource places carry the capacity (Mutex=1, RwLock=max_readers,
+/// Semaphore=count); control places and channels are unbounded.
+impl PlaceCapacity for PlaceKind {
+    fn capacity(&self) -> Option<usize> {
+        match self {
+            Self::Resource(ResourceType::Mutex) => Some(1),
+            Self::Resource(ResourceType::RwLock { max_readers }) => Some(*max_readers),
+            Self::Resource(ResourceType::Semaphore { count }) => Some(*count),
             _ => None,
         }
     }
+}
 
+impl CvnNet {
     /// Whether `place` is a control-flow place.
     pub fn is_control_flow(&self, place: PlaceId) -> bool {
         matches!(
@@ -66,44 +70,20 @@ impl CvnNet {
             .map_or_else(|| format!("t{}", transition.index()), |t| t.name.clone())
     }
 
-    fn is_enabled(&self, state: &CvnState, transition: TransitionId) -> bool {
-        let mut required: Vec<(PlaceId, usize)> = Vec::new();
-        for arc in self.arcs_for(transition) {
-            match arc.direction {
-                ArcDir::Input => {
-                    if let Some((_, total)) = required.iter_mut().find(|(p, _)| *p == arc.place) {
-                        *total = total.checked_add(arc.weight).unwrap_or(usize::MAX);
-                    } else {
-                        required.push((arc.place, arc.weight));
-                    }
-                    if let CvnArcKind::Guard(guard) = &arc.kind
-                        && !eval_guard(guard, &state.extra.vars).is_not_false()
-                    {
-                        return false;
-                    }
-                }
-                ArcDir::Read => {
-                    if state.marking.tokens(arc.place) < arc.weight {
-                        return false;
-                    }
-                }
-                ArcDir::Inhibitor => {
-                    if state.marking.tokens(arc.place) >= arc.weight {
-                        return false;
-                    }
-                }
-                ArcDir::Output | ArcDir::Reset => {}
-            }
-        }
-        if required
-            .iter()
-            .any(|(place, count)| state.marking.tokens(*place) < *count)
-        {
-            return false;
-        }
+    /// Whether no input-arc guard evaluates to false. An `Unknown` guard counts
+    /// as satisfied (over-approximation).
+    fn guards_hold(&self, state: &CvnState, transition: TransitionId) -> bool {
+        self.arcs_of(transition, ArcDir::Input)
+            .all(|arc| match &arc.kind {
+                CvnArcKind::Guard(guard) => eval_guard(guard, &state.extra.vars).is_not_false(),
+                CvnArcKind::Plain | CvnArcKind::Update(_) => true,
+            })
+    }
 
-        // Bounded Int domains: an update leaving the domain disables the
-        // transition (decidability).
+    /// Whether every output-arc update lands inside its variable's declared
+    /// domain. An update leaving the domain disables the transition, which is
+    /// what bounds the state space.
+    fn updates_stay_in_domain(&self, state: &CvnState, transition: TransitionId) -> bool {
         for arc in self.arcs_of(transition, ArcDir::Output) {
             if let CvnArcKind::Update(update) = &arc.kind {
                 for (var, expr) in update {
@@ -119,63 +99,37 @@ impl CvnNet {
         }
         true
     }
-}
 
-impl NetLike for CvnNet {
-    type State = CvnState;
-
-    fn num_places(&self) -> usize {
-        self.places.len()
-    }
-
-    fn num_transitions(&self) -> usize {
-        self.transitions.len()
-    }
-
-    fn enabled(&self, state: &Self::State) -> Vec<TransitionId> {
-        self.transitions
-            .iter()
-            .filter(|t| self.is_enabled(state, t.id))
-            .map(|t| t.id)
-            .collect()
-    }
-
-    fn fire(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State> {
-        if !self.is_enabled(state, transition) {
-            return None;
-        }
-
-        let mut next = state.clone();
-
-        for arc in self.arcs_of(transition, ArcDir::Input) {
-            let current = next.marking.tokens(arc.place);
-            next.marking
-                .set(arc.place, current.checked_sub(arc.weight)?);
-        }
-
+    /// Apply the output-arc updates, evaluating every expression against the
+    /// pre-firing variable store.
+    fn apply_updates(&self, next: &mut CvnState, before: &CvnState, transition: TransitionId) {
         for arc in self.arcs_of(transition, ArcDir::Output) {
-            let current = next.marking.tokens(arc.place);
-            let produced = current.checked_add(arc.weight)?;
-            if let Some(cap) = self.capacity_of(arc.place)
-                && produced > cap
-            {
-                return None;
-            }
-            next.marking.set(arc.place, produced);
-
             if let CvnArcKind::Update(update) = &arc.kind {
                 for (var, expr) in update {
                     next.extra
                         .vars
-                        .insert(var.clone(), eval_expr(expr, &state.extra.vars));
+                        .insert(var.clone(), eval_expr(expr, &before.extra.vars));
                 }
             }
         }
+    }
+}
 
-        for arc in self.arcs_of(transition, ArcDir::Reset) {
-            next.marking.set(arc.place, 0);
-        }
+impl Semantics for CvnNet {
+    type State = CvnState;
 
+    fn can_fire(&self, state: &Self::State, transition: TransitionId) -> bool {
+        self.structurally_enabled(&state.marking, transition)
+            && self.guards_hold(state, transition)
+            && self.updates_stay_in_domain(state, transition)
+    }
+
+    fn fire_enabled(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State> {
+        let mut next = state.clone();
+        self.consume_inputs(&mut next.marking, transition);
+        self.produce_outputs_bounded(&mut next.marking, transition)?;
+        self.apply_updates(&mut next, state, transition);
+        self.apply_resets(&mut next.marking, transition);
         Some(next)
     }
 }

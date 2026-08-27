@@ -15,15 +15,18 @@
 //! clock zones, …) lives in its own [`State`] `extra` payload.
 //!
 //! This module is the crate's *generic core*: [`ids`] holds the index-based
-//! identifiers and [`incidence`] the derived adjacency/incidence views. The
+//! identifiers, [`incidence`] the derived adjacency/incidence views, and
+//! [`firing`] the structural firing primitives every frontend shares. The
 //! frontend-specific kinds live in [`pt`](crate::pt), [`timed`](crate::timed),
 //! and [`cvn`](crate::cvn).
 
+pub mod firing;
 pub mod ids;
 pub mod incidence;
 
 use serde::{Deserialize, Serialize};
 
+pub use firing::PlaceCapacity;
 pub use ids::{PlaceId, TransitionId};
 pub use incidence::{Incidence, IncidenceMatrix};
 
@@ -321,5 +324,18 @@ impl std::ops::Index<PlaceId> for Marking {
 
     fn index(&self, place: PlaceId) -> &usize {
         &self.0[place.index()]
+    }
+}
+
+/// Add `weight` to `key`'s entry in an association list, inserting it if absent.
+///
+/// The single definition of how parallel arcs of the same direction combine;
+/// used by both the [`incidence`] snapshot and the [`firing`] primitives.
+/// Saturates rather than overflowing.
+pub(crate) fn accumulate<K: PartialEq>(list: &mut Vec<(K, usize)>, key: K, weight: usize) {
+    if let Some((_, total)) = list.iter_mut().find(|(k, _)| *k == key) {
+        *total = total.saturating_add(weight);
+    } else {
+        list.push((key, weight));
     }
 }

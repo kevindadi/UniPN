@@ -12,7 +12,7 @@ The one model is [`net::Net`](src/net/mod.rs), a container of places/transitions
 - [`timed::TimedNet`](src/timed/kinds.rs) — priority timed net (PTPN);
 - [`cvn::CvnNet`](src/cvn/kinds.rs) — colored verification net with guards/updates (ConcPlanVerify).
 
-Each net differs only in its place/transition/arc *kind* and its own firing semantics; the structure, ids, weights, and marking are shared.
+Each net differs only in its place/transition/arc *kind* and its own firing semantics; the structure, ids, weights, marking, and the structural firing rules are shared.
 
 ## Common Commands
 
@@ -35,13 +35,27 @@ Default feature: `timed` (DBM / state-class reachability in `analysis::timed`). 
 
 The tree has three layers: the generic core (`net/`), one directory per frontend (`pt/`, `timed/`, `cvn/`), and the analyses (`analysis/`). Inside a frontend directory the split is always the same — `kinds.rs` for the `PK`/`TK`/`AK` payloads and the net alias, `semantics.rs` for that net's firing, and then whatever else that frontend needs (`builder.rs`, `expr.rs`, `interval.rs`, `dot.rs`). Every directory's `mod.rs` holds only the module docs, the submodule declarations, and a flat re-export, so paths like `crate::pt::PtNet` stay stable when files move.
 
-- `net`: the single generic model — `Place<K>`, `Transition<K>`, `Arc<K>` (with `ArcDir` and `usize` weight), `Net<PK, TK, AK>`, `Marking` (`Vec<usize>`, index = place id), and `State<E>` (marking + per-net `extra`). Pure structure; no firing semantics and no marking live inside `Net`. Its submodules are `net::ids` (`PlaceId`/`TransitionId`, contiguous `usize`) and `net::incidence` (the `Incidence` adjacency snapshot and the ordinary `IncidenceMatrix`); both are re-exported from `net`, so `use crate::net::{Marking, PlaceId}` works.
-- `pt`: ConcBugDect's `PtPlaceKind`/`PtTransitionKind` (place/transition metadata) + `PtNet` alias and its P/T firing (`NetLike` impl with read/inhibitor/reset arcs and capacity modes), plus `PtBuilder` and DOT/connectivity diagnostics.
-- `timed`: PTPN's `TimeInterval`/`TimedPlaceKind`/`TimedTransitionKind` + `TimedNet` alias and discrete `NetLike` over `TimedState` (`State<TimedExtra>`, marking only). The timed **analysis** (DBM/state-class reachability) lives in `analysis::timed` behind the `timed` feature — clock zones stay on `StateClass`, not on `NetLike::State`.
+- `net`: the single generic model — `Place<K>`, `Transition<K>`, `Arc<K>` (with `ArcDir` and `usize` weight), `Net<PK, TK, AK>`, `Marking` (`Vec<usize>`, index = place id), and `State<E>` (marking + per-net `extra`). No marking lives inside `Net`. Its submodules are `net::ids` (`PlaceId`/`TransitionId`, contiguous `usize`), `net::incidence` (the `Incidence` adjacency snapshot and the ordinary `IncidenceMatrix`), and `net::firing` (the structural firing primitives, below); all are re-exported from `net`, so `use crate::net::{Marking, PlaceId}` works.
+- `pt`: ConcBugDect's `PtPlaceKind`/`PtTransitionKind` (place/transition metadata) + `PtNet` alias and its P/T firing (structural enabling, outputs clamped to capacity, reset arcs), plus `PtBuilder` and DOT/connectivity diagnostics.
+- `timed`: PTPN's `TimeInterval`/`TimedPlaceKind`/`TimedTransitionKind` + `TimedNet` alias and discrete firing over `TimedState` (`State<TimedExtra>`, marking only); clamping a non-saturating place is recorded as an overflow. The timed **analysis** (DBM/state-class reachability) lives in `analysis::timed` behind the `timed` feature — clock zones stay on `StateClass`, not on `NetLike::State`.
 - `cvn`: ConcPlanVerify's `CvnNet` + `CvnBuilder` + guard/update firing. `cvn::kinds` carries both the place/transition classification (`PlaceKind`, `ControlSub`, `ResourceType`, `TransitionKind`) and the CVN-specific `CvnArcKind`/`CvnTransition`/`CvnExtra`; `cvn::expr` is its value/expression/guard language. Both were previously the top-level `model` and `expr` modules.
-- `analysis`: the [`NetLike`](src/analysis/mod.rs) firing contract plus `explore` (BFS/DFS reachability) and `find_deadlocks` (caller-supplied deadlock predicate), and one submodule per frontend. `analysis::pt` is ConcBugDect's P/T reachability (`StateGraph`) and boundness (coverability tree); `analysis::cvn` is the CVN deadlock / dead-transition / conflict-set checks; `analysis::timed` is the PTPN state-class (DBM) reachability. The explorers report *blocked* states; they never decide what a deadlock is.
+- `analysis`: the [`Semantics`](src/analysis/mod.rs) and [`NetLike`](src/analysis/mod.rs) firing contracts plus `explore` (BFS/DFS reachability) and `find_deadlocks` (caller-supplied deadlock predicate), and one submodule per frontend. `analysis::pt` is ConcBugDect's P/T reachability (`StateGraph`) and boundness (coverability tree); `analysis::cvn` is the CVN deadlock / dead-transition / conflict-set checks; `analysis::timed` is the PTPN state-class (DBM) reachability. The explorers report *blocked* states; they never decide what a deadlock is.
 
 Every count — weights, token counts, ids — is `usize`.
+
+### The semantics layer
+
+A frontend implements `Semantics` (`can_fire` + `fire_enabled`), never `NetLike` — a blanket impl derives `NetLike` for every `Net<PK, TK, AK>` whose `Self: Semantics`, so the place/transition counts and the enabled-set scan exist once instead of three times.
+
+Everything that follows from the arc structure alone lives in `net::firing` as inherent methods on `Net`, and each rule has exactly one definition:
+
+- `structurally_enabled` — parallel input-arc weights summed per place, read arcs satisfied, inhibitor arcs clear. This is the *complete* enabling condition for `PtNet` and `TimedNet`; `CvnNet` calls it and then adds its guards and variable domains.
+- `consume_inputs` / `apply_resets` — token consumption (saturating; establish enabling first) and reset-arc clearing.
+- `produce_outputs_clamped` vs `produce_outputs_bounded` — the one genuine semantic fork. Choosing a method *is* the capacity policy: clamp and report which places were clamped (`PtNet` ignores the report, `TimedNet` turns it into the overflow metric), or reject the firing outright (`CvnNet` resource places).
+- `PlaceCapacity` — a trait on the place *kind*, because the three frontends express capacity differently (a field, a field plus a `saturate` flag, or a value derived from `ResourceType`). `Net::capacity_of` is available whenever `PK: PlaceCapacity`.
+- `accumulate` in `net/mod.rs` is the single definition of how parallel arcs of one direction combine; both `net::firing` and the `Incidence` snapshot use it.
+
+Add a shared rule here only when it follows from the structure. A rule that encodes one tool's *choice* (guards, clock zones, priorities, overflow reporting) belongs in that frontend's `semantics.rs`; do not push it down behind a hook.
 
 ## Scope Boundaries
 

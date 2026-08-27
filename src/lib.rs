@@ -16,13 +16,18 @@
 //! The source tree has three layers:
 //!
 //! - [`net`] — the generic core: the model itself plus [`net::ids`]
-//!   (identifiers) and [`net::incidence`] (adjacency / incidence matrix);
+//!   (identifiers), [`net::incidence`] (adjacency / incidence matrix), and
+//!   [`net::firing`] (the structural firing primitives all three nets share);
 //! - [`pt`], [`timed`], [`cvn`] — one directory per frontend, each holding its
 //!   `kinds` (the payloads and net alias) and `semantics` (its firing), plus
 //!   whatever else that frontend needs (`builder`, `expr`, `interval`, `dot`);
 //! - [`analysis`] — the [`NetLike`] firing contract, the generic explorer, and
 //!   one analysis module per frontend: [`analysis::pt`], [`analysis::cvn`], and
 //!   `analysis::timed` (behind the `timed` feature).
+//!
+//! A frontend implements [`Semantics`] (`can_fire` + `fire_enabled`) and gets
+//! [`NetLike`] for free; the structural half of firing comes from
+//! [`net::firing`] and the capacity of a place from [`PlaceCapacity`].
 
 pub mod analysis;
 pub mod cvn;
@@ -32,7 +37,7 @@ pub mod timed;
 
 pub use analysis::{
     AnalysisConfig, Counterexample, FiringStep, NetLike, PropertyViolation, ReachabilityGraph,
-    SearchStrategy, explore, find_deadlocks,
+    SearchStrategy, Semantics, explore, find_deadlocks,
 };
 pub use cvn::expr::{BoolExpr, CmpOp, ConcreteVal, Expr, Op, Val, VarUpdate};
 pub use cvn::{
@@ -40,8 +45,8 @@ pub use cvn::{
     ResourceType, TransitionKind, VarStore,
 };
 pub use net::{
-    Arc, ArcDir, Incidence, IncidenceMatrix, Marking, Net, Place, PlaceId, State, Transition,
-    TransitionId,
+    Arc, ArcDir, Incidence, IncidenceMatrix, Marking, Net, Place, PlaceCapacity, PlaceId, State,
+    Transition, TransitionId,
 };
 pub use pt::{
     AliasId, AtomicOrdering, PlaceType, PtBuilder, PtNet, PtPlace, PtPlaceKind, PtTransition,
