@@ -27,28 +27,16 @@ impl PlaceCapacity for PlaceKind {
 
 impl CvnNet {
     /// Whether `place` is a control-flow place.
+    ///
+    /// `is_resource` and `is_terminal` are the generic
+    /// [`PlaceRole`](crate::net::PlaceRole) methods on
+    /// [`Net`](crate::net::Net); this one stays here because the CVN's two-class
+    /// [`PlaceKind`] makes it meaningful, and it is *not* `!is_resource` — an
+    /// unknown place id is neither.
     pub fn is_control_flow(&self, place: PlaceId) -> bool {
         matches!(
             self.place(place).map(|p| &p.kind),
             Some(PlaceKind::Control(_))
-        )
-    }
-
-    /// Whether `place` is a resource place.
-    pub fn is_resource(&self, place: PlaceId) -> bool {
-        matches!(
-            self.place(place).map(|p| &p.kind),
-            Some(PlaceKind::Resource(_))
-        )
-    }
-
-    /// Whether `place` is a thread terminal (used by deadlock classification).
-    pub fn is_thread_terminal(&self, place: PlaceId) -> bool {
-        matches!(
-            self.place(place).map(|p| &p.kind),
-            Some(PlaceKind::Control(
-                ControlSub::ThreadEnd | ControlSub::FunctionEnd
-            ))
         )
     }
 

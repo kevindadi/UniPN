@@ -3,7 +3,14 @@
 //! The algorithms are domain-neutral and depend only on the [`NetLike`]
 //! firing contract. The explorer reports which states are *blocked* (no
 //! enabled transitions); whether a blocked state is a *deadlock* is decided by
-//! the caller via [`find_deadlocks`].
+//! the caller via [`find_deadlocks`], and a caller whose place kind implements
+//! [`PlaceRole`](crate::net::PlaceRole) already has that predicate in
+//! [`Net::is_deadlock`](crate::net::Net::is_deadlock).
+//!
+//! [`conflict_sets`] and [`unfired_transitions`] are here rather than under a
+//! frontend because their answers do not depend on any kind: sharing an input
+//! place and never appearing on an edge are properties of the structure and of
+//! the explored graph.
 //!
 //! P/T analysis lives in [`pt`] and CVN analysis in [`cvn`]. Timed
 //! (DBM/state-class) analysis is `analysis::timed` when the `timed` feature is
@@ -14,10 +21,10 @@ pub mod pt;
 #[cfg(feature = "timed")]
 pub mod timed;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
-use crate::net::{Net, TransitionId};
+use crate::net::{ArcDir, Net, PlaceId, TransitionId};
 
 /// The firing contract a net must satisfy to be analyzed.
 ///
@@ -197,6 +204,10 @@ pub fn explore<N: NetLike>(
 
 /// Classify the blocked states of a graph into deadlock state indices using the
 /// caller-supplied predicate.
+///
+/// For a net whose place kind implements [`PlaceRole`](crate::net::PlaceRole)
+/// the predicate is already written:
+/// [`Net::is_deadlock`](crate::net::Net::is_deadlock).
 pub fn find_deadlocks<S>(
     graph: &ReachabilityGraph<S>,
     is_deadlock: impl Fn(&S) -> bool,
@@ -207,6 +218,51 @@ pub fn find_deadlocks<S>(
         .copied()
         .filter(|&i| is_deadlock(&graph.states[i]))
         .collect()
+}
+
+/// Transition pairs that share an input place, and so compete for it.
+///
+/// Purely structural — no marking, no kinds — which is why it serves both the
+/// CVN's conflict reporting and ConcBugDect's race candidates.
+pub fn conflict_sets<PK, TK, AK>(net: &Net<PK, TK, AK>) -> Vec<(TransitionId, TransitionId)> {
+    let mut by_place: HashMap<PlaceId, Vec<TransitionId>> = HashMap::new();
+    for t in net.transition_ids() {
+        for arc in net.arcs_of(t, ArcDir::Input) {
+            by_place.entry(arc.place).or_default().push(t);
+        }
+    }
+
+    let mut pairs: BTreeSet<(TransitionId, TransitionId)> = BTreeSet::new();
+    for consumers in by_place.values() {
+        for i in 0..consumers.len() {
+            for j in (i + 1)..consumers.len() {
+                pairs.insert((
+                    consumers[i].min(consumers[j]),
+                    consumers[i].max(consumers[j]),
+                ));
+            }
+        }
+    }
+    pairs.into_iter().collect()
+}
+
+/// The transitions that never fired on any edge of `graph`, in id order.
+///
+/// Behavioral dead code: for the CVN a plan step that can never run, for P/T an
+/// unreachable branch. A frontend that groups transitions (the CVN's
+/// disjunctive families) folds the result afterwards — see
+/// [`cvn::find_dead_transitions`].
+pub fn unfired_transitions<PK, TK, AK, S>(
+    net: &Net<PK, TK, AK>,
+    graph: &ReachabilityGraph<S>,
+) -> Vec<TransitionId> {
+    let fired = graph.fired_transitions();
+    let mut dead: Vec<TransitionId> = net
+        .transition_ids()
+        .filter(|t| !fired.contains(t))
+        .collect();
+    dead.sort_by_key(|t| t.index());
+    dead
 }
 
 /// A single firing step in a counterexample trace.

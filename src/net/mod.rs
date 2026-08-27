@@ -16,8 +16,9 @@
 //!
 //! This module is the crate's *generic core*: [`ids`] holds the index-based
 //! identifiers, [`incidence`] the derived adjacency/incidence views, [`firing`]
-//! the structural firing primitives every frontend shares, and [`builder`] the
-//! net-plus-marking construction every frontend builds on. The
+//! the structural firing primitives every frontend shares, [`roles`] the
+//! questions an analysis asks a kind about the role a node plays, and
+//! [`builder`] the net-plus-marking construction every frontend builds on. The
 //! frontend-specific kinds live in [`pt`](crate::pt), [`timed`](crate::timed),
 //! and [`cvn`](crate::cvn).
 
@@ -25,6 +26,7 @@ pub mod builder;
 pub mod firing;
 pub mod ids;
 pub mod incidence;
+pub mod roles;
 
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +34,7 @@ pub use builder::NetBuilder;
 pub use firing::PlaceCapacity;
 pub use ids::{PlaceId, TransitionId};
 pub use incidence::{Incidence, IncidenceMatrix};
+pub use roles::{PlaceRole, TransitionRole};
 
 /// A place node: fixed `id` + `name`, plus a domain-specific `kind`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

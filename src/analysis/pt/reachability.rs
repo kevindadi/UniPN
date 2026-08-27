@@ -1,6 +1,11 @@
 //! P/T reachability-graph construction (port of ConcBugDect's
 //! `analysis/reachability.rs`): snapshots, BFS/DFS exploration, partial-order
-//! reduction, and deadlock (blocked-state) reporting.
+//! reduction, and blocked-state reporting.
+//!
+//! Exploration records which states are *blocked* (nothing left to fire);
+//! [`StateGraph::deadlock_states`] is what narrows those down to deadlocks,
+//! using the shared [`PlaceRole`](crate::net::PlaceRole) definition so that P/T
+//! and the CVN agree on what a deadlock is.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
@@ -201,7 +206,9 @@ pub struct TransitionFailure {
 pub struct StateGraphStats {
     pub state_count: usize,
     pub edge_count: usize,
-    pub deadlock_count: usize,
+    /// States with nothing left to fire. Not the same as the deadlock count —
+    /// see [`StateGraph::deadlock_states`].
+    pub blocked_count: usize,
     pub truncated: bool,
 }
 
@@ -249,7 +256,9 @@ pub struct StateGraph {
     pub states: Vec<StateNode>,
     pub edges: Vec<(usize, usize, StateEdge)>,
     pub initial: usize,
-    pub deadlocks: HashSet<usize>,
+    /// States with no enabled transition. A blocked state is a deadlock
+    /// *candidate*; [`StateGraph::deadlock_states`] decides which ones are.
+    pub blocked: HashSet<usize>,
     pub truncated: bool,
     pub failures: Vec<TransitionFailure>,
     pub markings: HashMap<Marking, usize>,
@@ -318,7 +327,7 @@ impl StateGraph {
         let mut edges = Vec::new();
         let mut markings: HashMap<Marking, usize> = HashMap::new();
         let mut queue: VecDeque<usize> = VecDeque::new();
-        let mut deadlocks = HashSet::new();
+        let mut blocked = HashSet::new();
         let mut failures = Vec::new();
         let mut truncated = false;
 
@@ -337,7 +346,7 @@ impl StateGraph {
             states[state_index].update_enabled(net, &enabled);
 
             if enabled.is_empty() {
-                deadlocks.insert(state_index);
+                blocked.insert(state_index);
                 continue;
             }
 
@@ -393,7 +402,7 @@ impl StateGraph {
             states,
             edges,
             initial: 0,
-            deadlocks,
+            blocked,
             truncated,
             failures,
             markings,
@@ -408,7 +417,7 @@ impl StateGraph {
         let mut markings: HashMap<Marking, usize> = HashMap::new();
         let mut sleep_sets: HashMap<usize, HashSet<TransitionId>> = HashMap::new();
         let mut queue: VecDeque<(usize, HashSet<TransitionId>)> = VecDeque::new();
-        let mut deadlocks = HashSet::new();
+        let mut blocked = HashSet::new();
         let mut failures = Vec::new();
         let mut truncated = false;
 
@@ -428,7 +437,7 @@ impl StateGraph {
             states[state_index].update_enabled(net, &enabled.iter().copied().collect::<Vec<_>>());
 
             if enabled.is_empty() {
-                deadlocks.insert(state_index);
+                blocked.insert(state_index);
                 continue;
             }
 
@@ -510,7 +519,7 @@ impl StateGraph {
             states,
             edges,
             initial: 0,
-            deadlocks,
+            blocked,
             truncated,
             failures,
             markings,
@@ -522,9 +531,30 @@ impl StateGraph {
         StateGraphStats {
             state_count: self.states.len(),
             edge_count: self.edges.len(),
-            deadlock_count: self.deadlocks.len(),
+            blocked_count: self.blocked.len(),
             truncated: self.truncated,
         }
+    }
+
+    /// The blocked states that are genuine deadlocks: some control token sits on
+    /// a place that is neither a resource nor a thread end.
+    ///
+    /// A run in which every thread reached `FunctionEnd` and handed every lock
+    /// back is blocked too, and is a normal termination — which is why
+    /// [`StateGraph::blocked`] alone must not be reported as deadlocks.
+    ///
+    /// `net` is passed explicitly rather than read from [`StateGraph::net`]
+    /// because that field is optional and a missing net cannot answer the
+    /// question either way.
+    pub fn deadlock_states(&self, net: &PtNet) -> Vec<usize> {
+        let mut states: Vec<usize> = self
+            .blocked
+            .iter()
+            .copied()
+            .filter(|&i| net.is_deadlock(&self.states[i].marking))
+            .collect();
+        states.sort_unstable();
+        states
     }
 
     pub fn node(&self, index: usize) -> &StateNode {

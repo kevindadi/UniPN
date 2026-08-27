@@ -1,8 +1,14 @@
-use unipn::analysis::{AnalysisConfig, NetLike, SearchStrategy, explore, find_deadlocks};
+use unipn::analysis::{
+    AnalysisConfig, NetLike, SearchStrategy, conflict_sets, explore, find_deadlocks,
+};
 use unipn::cvn::expr::{BoolExpr, CmpOp, Expr, Val, VarUpdate};
-use unipn::cvn::kinds::{ControlSub, CvnTransition, PlaceKind, ResourceType, TransitionKind};
-use unipn::net::{ArcDir, Marking};
-use unipn::pt::{PlaceType, PtPlaceKind, PtTransitionKind, TransitionType};
+use unipn::cvn::kinds::{
+    ControlSub, CvnArcKind, CvnTransition, PlaceKind, ResourceType, TransitionKind,
+};
+use unipn::net::{ArcDir, Marking, TransitionRole};
+use unipn::pt::{
+    AliasId, AtomicOrdering, PlaceType, PtPlaceKind, PtTransitionKind, TransitionType,
+};
 use unipn::{
     CvnBuilder, CvnNet, PlaceId, PtNet, TimeInterval, TimedBuilder, TimedNet, TimedPlaceKind,
     TimedState, TimedTransitionKind, TransitionId,
@@ -307,6 +313,101 @@ fn place_capacity_is_uniform_across_frontends() {
     assert_eq!(cvn.capacity_of(mutex), Some(1));
     assert_eq!(cvn.capacity_of(sem), Some(3));
     assert_eq!(cvn.capacity_of(ctrl), None);
+}
+
+#[test]
+fn place_roles_and_the_deadlock_definition_are_shared() {
+    // The same three-place shape twice: a control point, a free resource, a
+    // thread end.
+    let mut pt = PtNet::new();
+    let pt_ctrl = pt.add_place("bb", PtPlaceKind::new(PlaceType::BasicBlock));
+    let pt_res = pt.add_place("m", PtPlaceKind::new(PlaceType::Resources));
+    let pt_end = pt.add_place("end", PtPlaceKind::new(PlaceType::FunctionEnd));
+
+    let mut b = CvnBuilder::new();
+    let cvn_ctrl = b.add_place("bb", PlaceKind::Control(ControlSub::BasicBlock));
+    let cvn_res = b.add_place("m", PlaceKind::Resource(ResourceType::Mutex));
+    let cvn_end = b.add_place("end", PlaceKind::Control(ControlSub::ThreadEnd));
+    let (cvn, _) = b.build();
+
+    assert!(pt.is_resource(pt_res) && cvn.is_resource(cvn_res));
+    assert!(pt.is_terminal(pt_end) && cvn.is_terminal(cvn_end));
+    assert!(!pt.is_resource(pt_ctrl) && !pt.is_terminal(pt_ctrl));
+    assert!(!cvn.is_resource(cvn_ctrl) && !cvn.is_terminal(cvn_ctrl));
+
+    // A finished thread next to a free mutex is not a deadlock; a token
+    // stranded on the control point is. Both frontends now say so.
+    let done = Marking::new(vec![0, 1, 1]);
+    let stuck = Marking::new(vec![1, 1, 0]);
+    assert!(!pt.is_deadlock(&done) && !cvn.is_deadlock(&done));
+    assert!(pt.is_deadlock(&stuck) && cvn.is_deadlock(&stuck));
+
+    let all = Marking::new(vec![1, 1, 1]);
+    assert_eq!(pt.blocked_places(&all), vec![pt_ctrl]);
+    assert_eq!(cvn.blocked_places(&all), vec![cvn_ctrl]);
+}
+
+#[test]
+fn transition_roles_give_both_frontends_one_vocabulary() {
+    // Same operation, two lowerings: P/T carries the alias id its pointer
+    // analysis inferred, the CVN carries a bare tag.
+    let pt_lock = PtTransitionKind::new(TransitionType::Lock(7));
+    let cvn_lock = CvnTransition::new(TransitionKind::Lock);
+    assert!(pt_lock.is_acquire() && cvn_lock.is_acquire());
+    assert!(!pt_lock.is_release() && !cvn_lock.is_release());
+
+    // Releasing a Rust lock is dropping its guard.
+    assert!(PtTransitionKind::new(TransitionType::DropWrite(7)).is_release());
+    assert!(CvnTransition::new(TransitionKind::Unlock).is_release());
+
+    assert!(PtTransitionKind::new(TransitionType::Spawn("w".into())).is_thread_spawn());
+    assert!(CvnTransition::new(TransitionKind::Spawn).is_thread_spawn());
+
+    let alias = AliasId {
+        instance_id: 0,
+        local: 1,
+        array_index: None,
+        field: None,
+    };
+    let pt_atomic = TransitionType::AtomicLoad(alias, AtomicOrdering::SeqCst, "x".into(), 0);
+    assert!(PtTransitionKind::new(pt_atomic).is_atomic());
+    assert!(CvnTransition::new(TransitionKind::AtomicLoad).is_atomic());
+
+    assert!(PtTransitionKind::new(TransitionType::UnsafeAccess(Vec::new())).is_unsafe_access());
+    assert!(CvnTransition::new(TransitionKind::UnsafeAccess).is_unsafe_access());
+
+    // Where the two lowerings genuinely differ: P/T's single `Wait` both drops
+    // and retakes the lock, so it is neither; the CVN splits it in two and
+    // classifies both halves.
+    let pt_wait = PtTransitionKind::new(TransitionType::Wait);
+    assert!(!pt_wait.is_acquire() && !pt_wait.is_release());
+    assert!(CvnTransition::new(TransitionKind::CondvarWaitEnter).is_release());
+    assert!(CvnTransition::new(TransitionKind::CondvarReacquire).is_acquire());
+}
+
+#[test]
+fn conflict_sets_are_structural_and_serve_both_frontends() {
+    let mut pt = PtNet::new();
+    let shared = pt.add_place("m", PtPlaceKind::new(PlaceType::Resources));
+    let a = pt.add_transition("a", PtTransitionKind::new(TransitionType::Lock(0)));
+    let b = pt.add_transition("b", PtTransitionKind::new(TransitionType::Lock(0)));
+    pt.add_arc(shared, a, ArcDir::Input, 1, ());
+    pt.add_arc(shared, b, ArcDir::Input, 1, ());
+    assert_eq!(conflict_sets(&pt), vec![(a, b)]);
+
+    // A relay has nothing to compete over.
+    let (relay, _) = pt_relay();
+    assert!(conflict_sets(&relay).is_empty());
+
+    // The same function, no CVN knowledge involved.
+    let mut cb = CvnBuilder::new();
+    let cvn_shared = cb.add_place("m", PlaceKind::Resource(ResourceType::Mutex));
+    let ca = cb.add_transition("a", CvnTransition::new(TransitionKind::Lock));
+    let cbt = cb.add_transition("b", CvnTransition::new(TransitionKind::Lock));
+    cb.add_arc(cvn_shared, ca, ArcDir::Input, 1, CvnArcKind::Plain);
+    cb.add_arc(cvn_shared, cbt, ArcDir::Input, 1, CvnArcKind::Plain);
+    let (cvn, _) = cb.build();
+    assert_eq!(conflict_sets(&cvn), vec![(ca, cbt)]);
 }
 
 #[test]

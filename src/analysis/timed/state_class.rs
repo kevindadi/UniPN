@@ -71,7 +71,7 @@ impl FiringEdge {
 pub struct StateClass {
     pub marking: Marking,
     pub zone: DBM,
-    /// index -> variable; [0] is Zero.
+    /// index -> variable; index 0 is Zero.
     pub clock_vars: Vec<ClockVar>,
     /// transition -> h_t index or -1.
     pub exec_clock_of_transition: Vec<i32>,

@@ -21,18 +21,44 @@ fn reachability_graph_builds_and_reports_deadlock() {
 
     assert_eq!(graph.states.len(), 2);
     assert_eq!(graph.edges.len(), 1);
-    assert_eq!(graph.deadlocks.len(), 1);
+    assert_eq!(graph.blocked.len(), 1);
 
     // The blocked state is the one with a token on p1.
-    let blocked = *graph.deadlocks.iter().next().unwrap();
+    let blocked = *graph.blocked.iter().next().unwrap();
     let node = graph.node(blocked);
     assert_eq!(node.marking.tokens(PlaceId(1)), 1);
+
+    // p1 is a BasicBlock, so the token stranded there is a real deadlock.
+    assert_eq!(graph.deadlock_states(&net), vec![blocked]);
 
     let stats = graph.stats();
     assert_eq!(stats.state_count, 2);
     assert_eq!(stats.edge_count, 1);
-    assert_eq!(stats.deadlock_count, 1);
+    assert_eq!(stats.blocked_count, 1);
     assert!(!stats.truncated);
+}
+
+#[test]
+fn a_finished_thread_is_blocked_but_not_deadlocked() {
+    let mut net = PtNet::new();
+    let start = net.add_place("start", PtPlaceKind::new(PlaceType::FunctionStart));
+    let lock = net.add_place("mutex", PtPlaceKind::new(PlaceType::Resources));
+    let end = net.add_place("end", PtPlaceKind::new(PlaceType::FunctionEnd));
+    let t = net.add_transition("run", PtTransitionKind::new(TransitionType::Normal));
+    net.add_arc(start, t, ArcDir::Input, 1, ());
+    net.add_arc(end, t, ArcDir::Output, 1, ());
+
+    // The mutex starts free and is never taken, so its token stays put.
+    let graph = StateGraph::from_net(&net, Marking::new(vec![1, 1, 0]));
+
+    let terminal = *graph.blocked.iter().next().unwrap();
+    assert_eq!(graph.node(terminal).marking.tokens(end), 1);
+    assert_eq!(graph.node(terminal).marking.tokens(lock), 1);
+
+    // Nothing left to fire, yet neither the finished thread nor the free mutex
+    // is evidence of a deadlock.
+    assert_eq!(graph.stats().blocked_count, 1);
+    assert!(graph.deadlock_states(&net).is_empty());
 }
 
 #[test]
@@ -63,7 +89,7 @@ fn por_produces_same_reachable_states() {
         },
     );
     assert_eq!(std.states.len(), por.states.len());
-    assert_eq!(std.deadlocks.len(), por.deadlocks.len());
+    assert_eq!(std.blocked.len(), por.blocked.len());
 }
 
 fn unbounded_net() -> (PtNet, Marking) {

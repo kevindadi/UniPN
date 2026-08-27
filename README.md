@@ -42,20 +42,20 @@ Three layers: the generic core, one directory per frontend, and the analyses.
 
 ```text
 src/
-  net/      mod.rs (the model) + ids.rs + incidence.rs + firing.rs + builder.rs
-  pt/       kinds.rs + semantics.rs + builder.rs + dot.rs
+  net/      mod.rs (the model) + ids.rs + incidence.rs + firing.rs + roles.rs + builder.rs
+  pt/       kinds.rs + semantics.rs + roles.rs + builder.rs + dot.rs
   timed/    kinds.rs + semantics.rs + interval.rs + builder.rs
-  cvn/      kinds.rs + semantics.rs + builder.rs + expr.rs + dot.rs
+  cvn/      kinds.rs + semantics.rs + roles.rs + builder.rs + expr.rs + dot.rs
   analysis/ mod.rs (Semantics + NetLike + explore) + pt/ + cvn/ + timed/
 ```
 
-Within a frontend directory `kinds.rs` holds the payloads and the net alias, `semantics.rs` holds that net's firing, and each `mod.rs` re-exports flatly — so `unipn::pt::PtNet` and the crate-root re-exports (`unipn::PtNet`, `unipn::PlaceId`, …) do not depend on which file a symbol lives in.
+Within a frontend directory `kinds.rs` holds the payloads and the net alias, `semantics.rs` holds that net's firing, `roles.rs` its answers to the shared role questions, and each `mod.rs` re-exports flatly — so `unipn::pt::PtNet` and the crate-root re-exports (`unipn::PtNet`, `unipn::PlaceId`, …) do not depend on which file a symbol lives in.
 
 ## Firing
 
 Whatever follows from the arc structure alone is shared, in [`net::firing`](src/net/firing.rs): `structurally_enabled` (parallel input weights summed per place, read arcs satisfied, inhibitor arcs clear), `consume_inputs`, `apply_resets`, and the capacity lookup behind the `PlaceCapacity` trait.
 
-What a frontend decides for itself is its `Semantics` impl — two methods, `can_fire` and `fire_enabled`; `NetLike` is then derived for it. The capacity policy is the clearest example of a genuine difference: `PtNet` clamps an over-capacity place, `TimedNet` clamps and records the overflow, and `CvnNet` rejects the firing.
+What a frontend decides for itself is its `Semantics` impl — two methods, `can_fire` and `fire_enabled`; `NetLike` is then derived for it. The capacity policy is the clearest example of a genuine difference: `PtNet` clamps an over-capacity place, `TimedNet` clamps and reports which non-saturating places it clamped (the state-class graph collects these in `stats.overflowed_places`), and `CvnNet` rejects the firing.
 
 ```rust
 impl Semantics for PtNet {
@@ -75,11 +75,20 @@ impl Semantics for PtNet {
 }
 ```
 
+## Roles
+
+Some questions an analysis asks are the same for more than one frontend, while the answers are not. Those live in [`net::roles`](src/net/roles.rs), in the same shape as `PlaceCapacity`:
+
+- `PlaceRole` — is this place a shared resource, and may a thread legitimately end on it? This is what makes the deadlock definition shared: `Net::is_deadlock` says a blocked marking is only a deadlock if some token sits on a control place that is not a thread end, so a run where every thread finished and returned every lock is a normal termination rather than a false positive.
+- `TransitionRole` — `is_acquire`, `is_release`, `is_thread_spawn`, `is_thread_join`, `is_atomic`, `is_unsafe_access`. A shared *vocabulary*, deliberately not a shared enum: P/T's transition variants carry what its pointer analysis inferred (`Lock(alias)`, `AtomicLoad(alias, ordering, …)`) while the CVN's are bare tags, since in ConcIR the resource identity already is the place identity.
+
+The timed net implements neither — PTPN's places carry no control/resource split and it classifies schedulability, not deadlocks. A bound is only paid where it is used.
+
 ## Analysis
 
-Analysis is not part of the model. The [`analysis`](src/analysis/mod.rs) module provides the minimal firing contract [`NetLike`] plus `explore` (BFS/DFS reachability) and `find_deadlocks`. The explorer only reports *blocked* states; the caller decides what counts as a deadlock.
+Analysis is not part of the model. The [`analysis`](src/analysis/mod.rs) module provides the minimal firing contract [`NetLike`] plus the checks that depend on no kind at all: `explore` (BFS/DFS reachability), `find_deadlocks`, `conflict_sets` (transitions competing for an input place), and `unfired_transitions` (behavioral dead code). The explorer only reports *blocked* states; a deadlock verdict comes from `PlaceRole` or from the caller.
 
-Each frontend then has its own analysis submodule: `analysis::pt` (reachability graph, boundness, reduction), `analysis::cvn` (deadlock, dead transitions, conflict sets), and `analysis::timed` (state classes).
+Each frontend then has its own analysis submodule: `analysis::pt` (reachability graph, boundness, reduction), `analysis::cvn` (the generic checks wrapped in ConcIR anchors and disjunctive families), and `analysis::timed` (state classes).
 
 Timed (DBM / state-class) analysis is optional:
 

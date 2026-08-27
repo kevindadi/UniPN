@@ -1,30 +1,28 @@
-//! CVN property checks over an explored [`ReachabilityGraph`]: deadlock
-//! classification, dead-transition (and dead disjunctive family) detection, and
-//! structural conflict sets.
+//! CVN property checks over an explored [`ReachabilityGraph`].
+//!
+//! What is left here is only the part that is CVN knowledge. The deadlock
+//! *definition* now lives on [`Net`](crate::net::Net) behind
+//! [`PlaceRole`](crate::net::PlaceRole), and "never fired" in
+//! [`unfired_transitions`]; this module adds the CVN's source attribution
+//! (anchors) and its disjunctive families.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::HashSet;
 
-use crate::analysis::{Counterexample, FiringStep, PropertyViolation, ReachabilityGraph};
+use crate::analysis::{
+    Counterexample, FiringStep, PropertyViolation, ReachabilityGraph, unfired_transitions,
+};
 use crate::cvn::{CvnNet, CvnState};
-use crate::net::{ArcDir, PlaceId, TransitionId};
+use crate::net::PlaceId;
 
 /// Decide whether a state with no enabled transitions is a deadlock: at least
 /// one control-flow token sits on a non-terminal, non-resource place.
 pub fn is_deadlock(net: &CvnNet, state: &CvnState) -> bool {
-    state
-        .marking
-        .iter_nonzero()
-        .any(|(p, _)| !net.is_resource(p) && !net.is_thread_terminal(p))
+    net.is_deadlock(&state.marking)
 }
 
 /// The blocked (control-flow, non-terminal) places in a deadlock state.
 pub fn blocked_places(net: &CvnNet, state: &CvnState) -> Vec<PlaceId> {
-    state
-        .marking
-        .iter_nonzero()
-        .filter(|(p, _)| !net.is_resource(*p) && !net.is_thread_terminal(*p))
-        .map(|(p, _)| p)
-        .collect()
+    net.blocked_places(&state.marking)
 }
 
 fn trace_of(net: &CvnNet, graph: &ReachabilityGraph<CvnState>, target: usize) -> Vec<FiringStep> {
@@ -57,40 +55,30 @@ pub fn find_deadlocks(
         .collect()
 }
 
-/// Find transitions that never fire behaviorally (or whole disjunctive families
-/// that are dead).
+/// Find transitions that never fire behaviorally, reporting a whole disjunctive
+/// family once when every one of its members is dead.
+///
+/// The "never fired" part is [`unfired_transitions`]; what the CVN adds is the
+/// family folding — one dead branch of an OR is not a defect, a dead OR is —
+/// and the ConcIR anchors that let the repair layer point at source.
 pub fn find_dead_transitions(
     net: &CvnNet,
     graph: &ReachabilityGraph<CvnState>,
 ) -> Vec<Counterexample<CvnState>> {
     let fired = graph.fired_transitions();
+    let family_of = |t| net.transition(t).and_then(|tr| tr.kind.family.as_deref());
 
-    let mut live_families: HashSet<&str> = HashSet::new();
-    let mut all: Vec<TransitionId> = net.transition_ids().collect();
-    for t in &all {
-        if fired.contains(t)
-            && let Some(f) = net.transition(*t).and_then(|tr| tr.kind.family.as_deref())
-        {
-            live_families.insert(f);
-        }
-    }
-    all.sort_by_key(|t| t.index());
+    let live_families: HashSet<&str> = fired.iter().filter_map(|&t| family_of(t)).collect();
 
     let initial = graph.states[graph.initial].clone();
     let mut reported_families: HashSet<&str> = HashSet::new();
     let mut dead = Vec::new();
 
-    for t in all {
-        if fired.contains(&t) {
+    for t in unfired_transitions(net, graph) {
+        if let Some(family) = family_of(t)
+            && (live_families.contains(family) || !reported_families.insert(family))
+        {
             continue;
-        }
-        if let Some(f) = net.transition(t).and_then(|tr| tr.kind.family.as_deref()) {
-            if live_families.contains(f) {
-                continue;
-            }
-            if !reported_families.insert(f) {
-                continue;
-            }
         }
         dead.push(Counterexample {
             kind: PropertyViolation::DeadTransition {
@@ -104,31 +92,5 @@ pub fn find_dead_transitions(
         });
     }
 
-    dead.sort_by_key(|cx| match &cx.kind {
-        PropertyViolation::DeadTransition { transition, .. } => transition.index(),
-        _ => 0,
-    });
     dead
-}
-
-/// Transition pairs sharing an input place (potential races/conflicts).
-pub fn conflict_sets(net: &CvnNet) -> Vec<(TransitionId, TransitionId)> {
-    let mut by_place: HashMap<PlaceId, Vec<TransitionId>> = HashMap::new();
-    for t in net.transition_ids() {
-        for arc in net.arcs_of(t, ArcDir::Input) {
-            by_place.entry(arc.place).or_default().push(t);
-        }
-    }
-
-    let mut pairs: BTreeSet<(TransitionId, TransitionId)> = BTreeSet::new();
-    for consumers in by_place.values() {
-        for i in 0..consumers.len() {
-            for j in (i + 1)..consumers.len() {
-                let a = consumers[i].min(consumers[j]);
-                let b = consumers[i].max(consumers[j]);
-                pairs.insert((a, b));
-            }
-        }
-    }
-    pairs.into_iter().collect()
 }

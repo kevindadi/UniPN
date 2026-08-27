@@ -8,6 +8,9 @@
 //!   ([`NetLike`](crate::analysis::NetLike)), with read/inhibitor/reset arcs and
 //!   capacity clamping;
 //! - [`builder`] — chain-style construction mirroring ConcBugDect's API;
+//! - [`roles`] — the [`PlaceRole`](crate::net::PlaceRole) /
+//!   [`TransitionRole`](crate::net::TransitionRole) answers the analyses share
+//!   with the CVN;
 //! - [`dot`] — Graphviz export and connectivity diagnostics.
 //!
 //! Reachability, boundness, and net reduction live in
@@ -16,6 +19,7 @@
 pub mod builder;
 pub mod dot;
 pub mod kinds;
+pub mod roles;
 pub mod semantics;
 
 pub use builder::{PtBuilder, marking};

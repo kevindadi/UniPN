@@ -9,6 +9,9 @@
 //! - [`expr`] — values, expressions and three-valued guards;
 //! - [`semantics`] — guard-gated enabling and firing ([`NetLike`](crate::analysis::NetLike));
 //! - [`builder`] — chain-style construction;
+//! - [`roles`] — the [`PlaceRole`](crate::net::PlaceRole) /
+//!   [`TransitionRole`](crate::net::TransitionRole) answers the analyses share
+//!   with the P/T net;
 //! - [`dot`] — Graphviz export.
 //!
 //! The CVN's deadlock / dead-transition / conflict analysis lives in
@@ -18,6 +21,7 @@ pub mod builder;
 pub mod dot;
 pub mod expr;
 pub mod kinds;
+pub mod roles;
 pub mod semantics;
 
 pub use builder::CvnBuilder;
