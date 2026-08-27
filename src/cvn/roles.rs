@@ -1,29 +1,21 @@
 //! How the CVN's kinds answer the shared [`PlaceRole`] / [`TransitionRole`]
 //! questions.
 //!
-//! The place side is the definition the CVN deadlock check already used, now
-//! stated once for both frontends and matching `PtPlaceKind` variant for
-//! variant — `Control(FunctionEnd)` against `PlaceType::FunctionEnd`,
-//! `Resource(_)` against `PlaceType::Resources`. The transition side is where
+//! Only the transition side is here. The place side is not the CVN's to answer
+//! any more: [`PlaceKind`](super::kinds::PlaceKind) *is* the shared
+//! [`PlaceClass`](crate::net::PlaceClass), so it inherits the one `PlaceRole`
+//! implementation both frontends use.
+//!
+//! The transition side is where
 //! the CVN's finer lowering shows: because it splits a condvar wait into
 //! [`CondvarWaitEnter`](TransitionKind::CondvarWaitEnter) and
 //! [`CondvarReacquire`](TransitionKind::CondvarReacquire), both halves get
 //! classified, while P/T's single `Wait` transition can be classified as
 //! neither.
 
-use crate::net::{PlaceRole, TransitionRole};
+use crate::net::TransitionRole;
 
-use super::kinds::{ControlSub, CvnTransition, PlaceKind, TransitionKind};
-
-impl PlaceRole for PlaceKind {
-    fn is_resource(&self) -> bool {
-        matches!(self, Self::Resource(_))
-    }
-
-    fn is_terminal(&self) -> bool {
-        matches!(self, Self::Control(ControlSub::FunctionEnd))
-    }
-}
+use super::kinds::{CvnTransition, TransitionKind};
 
 impl TransitionRole for CvnTransition {
     /// A channel `Recv` and a condvar reacquire are acquisitions too: both take

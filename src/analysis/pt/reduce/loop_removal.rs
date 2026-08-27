@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
-use crate::net::{PlaceId, TransitionId};
-use crate::pt::PlaceType;
+use crate::net::{PlaceId, PlaceRole, TransitionId};
 
 use super::ReductionStep;
 use super::graph::ReductionGraph;
@@ -28,7 +27,7 @@ impl ReductionGraph {
             if self.places[start_idx].removed {
                 continue;
             }
-            if self.places[start_idx].kind.place_type == PlaceType::Resources {
+            if self.places[start_idx].kind.is_resource() {
                 continue;
             }
             if self.places[start_idx].outgoing.len() != 1 {
@@ -74,7 +73,7 @@ impl ReductionGraph {
                     valid_cycle = false;
                     break;
                 }
-                if self.places[next_place].kind.place_type == PlaceType::Resources {
+                if self.places[next_place].kind.is_resource() {
                     valid_cycle = false;
                     break;
                 }

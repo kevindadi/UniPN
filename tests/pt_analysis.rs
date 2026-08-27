@@ -6,8 +6,8 @@ use unipn::{ArcDir, Marking, PlaceId, TransitionId};
 
 fn relay_net() -> (PtNet, Marking) {
     let mut net = PtNet::new();
-    let p0 = net.add_place("p0", PtPlaceKind::new(PlaceType::BasicBlock));
-    let p1 = net.add_place("p1", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p0 = net.add_place("p0", PtPlaceKind::control(ControlSub::BasicBlock));
+    let p1 = net.add_place("p1", PtPlaceKind::control(ControlSub::BasicBlock));
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p0, t, ArcDir::Input, 1, ());
     net.add_arc(p1, t, ArcDir::Output, 1, ());
@@ -44,10 +44,10 @@ fn a_token_stranded_before_a_firable_transition_is_a_deadlock() {
     // p0 relays to p1, but leaving p1 also needs a token on p2 that nothing ever
     // produces. p1 has an outgoing arc, so the token there really is stuck.
     let mut net = PtNet::new();
-    let p0 = net.add_place("p0", PtPlaceKind::new(PlaceType::BasicBlock));
-    let p1 = net.add_place("p1", PtPlaceKind::new(PlaceType::BasicBlock));
-    let p2 = net.add_place("p2", PtPlaceKind::new(PlaceType::BasicBlock));
-    let p3 = net.add_place("p3", PtPlaceKind::new(PlaceType::FunctionEnd));
+    let p0 = net.add_place("p0", PtPlaceKind::control(ControlSub::BasicBlock));
+    let p1 = net.add_place("p1", PtPlaceKind::control(ControlSub::BasicBlock));
+    let p2 = net.add_place("p2", PtPlaceKind::control(ControlSub::BasicBlock));
+    let p3 = net.add_place("p3", PtPlaceKind::control(ControlSub::FunctionEnd));
     let relay = net.add_transition("relay", PtTransitionKind::new(TransitionType::Normal));
     let join = net.add_transition("join", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p0, relay, ArcDir::Input, 1, ());
@@ -68,7 +68,7 @@ fn a_finished_thread_is_blocked_but_not_deadlocked() {
     let mut net = PtNet::new();
     let start = net.add_place("start", PtPlaceKind::new(PlaceType::FunctionStart));
     let lock = net.add_place("mutex", PtPlaceKind::new(PlaceType::Resources));
-    let end = net.add_place("end", PtPlaceKind::new(PlaceType::FunctionEnd));
+    let end = net.add_place("end", PtPlaceKind::control(ControlSub::FunctionEnd));
     let t = net.add_transition("run", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(start, t, ArcDir::Input, 1, ());
     net.add_arc(end, t, ArcDir::Output, 1, ());
@@ -119,8 +119,8 @@ fn por_produces_same_reachable_states() {
 
 fn unbounded_net() -> (PtNet, Marking) {
     let mut net = PtNet::new();
-    let p = net.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
-    let q = net.add_place("q", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p = net.add_place("p", PtPlaceKind::control(ControlSub::BasicBlock));
+    let q = net.add_place("q", PtPlaceKind::control(ControlSub::BasicBlock));
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p, t, ArcDir::Input, 1, ());
     net.add_arc(p, t, ArcDir::Output, 1, ());

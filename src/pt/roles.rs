@@ -1,22 +1,27 @@
 //! How ConcBugDect's kinds answer the shared [`PlaceRole`] / [`TransitionRole`]
 //! questions.
 //!
-//! [`PlaceType`] already carries the control/resource split the analyses need,
-//! it was simply never exposed to them: before this, P/T reachability treated
-//! every blocked state as a deadlock, including a run where all threads reached
-//! `FunctionEnd` and returned every lock.
+//! [`PlaceType`](super::kinds::PlaceType) already carried the control/resource
+//! split the analyses need, it was simply never exposed to them: before this,
+//! P/T reachability treated every blocked state as a deadlock, including a run
+//! where all threads reached `FunctionEnd` and returned every lock.
+//!
+//! The place side is now only a forward. Both frontends instantiate the same
+//! [`PlaceClass`](crate::net::PlaceClass), which carries the one `PlaceRole`
+//! implementation; all `PtPlaceKind` adds is reaching past its span and
+//! capacity fields to the class.
 
 use crate::net::{PlaceRole, TransitionRole};
 
-use super::kinds::{PlaceType, PtPlaceKind, PtTransitionKind, TransitionType};
+use super::kinds::{PtPlaceKind, PtTransitionKind, TransitionType};
 
 impl PlaceRole for PtPlaceKind {
     fn is_resource(&self) -> bool {
-        self.place_type == PlaceType::Resources
+        self.place_type.is_resource()
     }
 
     fn is_terminal(&self) -> bool {
-        self.place_type == PlaceType::FunctionEnd
+        self.place_type.is_terminal()
     }
 }
 

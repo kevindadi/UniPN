@@ -2,13 +2,9 @@ use unipn::analysis::{
     AnalysisConfig, NetLike, SearchStrategy, conflict_sets, explore, find_deadlocks,
 };
 use unipn::cvn::expr::{BoolExpr, CmpOp, Expr, Val, VarUpdate};
-use unipn::cvn::kinds::{
-    ControlSub, CvnArcKind, CvnTransition, PlaceKind, ResourceType, TransitionKind,
-};
-use unipn::net::{ArcDir, Marking, TransitionRole};
-use unipn::pt::{
-    AliasId, AtomicOrdering, PlaceType, PtPlaceKind, PtTransitionKind, TransitionType,
-};
+use unipn::cvn::kinds::{CvnArcKind, CvnTransition, PlaceKind, ResourceType, TransitionKind};
+use unipn::net::{ArcDir, ControlSub, Marking, TransitionRole};
+use unipn::pt::{AliasId, AtomicOrdering, PtPlaceKind, PtTransitionKind, TransitionType};
 use unipn::{
     CvnBuilder, CvnNet, PlaceId, PtNet, TimeInterval, TimedBuilder, TimedNet, TimedPlaceKind,
     TimedState, TimedTransitionKind, TransitionId,
@@ -18,8 +14,8 @@ use unipn::{
 
 fn pt_relay() -> (PtNet, Marking) {
     let mut net = PtNet::new();
-    let p0 = net.add_place("p0", PtPlaceKind::new(PlaceType::BasicBlock));
-    let p1 = net.add_place("p1", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p0 = net.add_place("p0", PtPlaceKind::control(ControlSub::BasicBlock));
+    let p1 = net.add_place("p1", PtPlaceKind::control(ControlSub::BasicBlock));
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p0, t, ArcDir::Input, 1, ());
     net.add_arc(p1, t, ArcDir::Output, 1, ());
@@ -47,7 +43,7 @@ fn pt_net_fires_and_reports_deadlock_via_caller_predicate() {
 #[test]
 fn pt_capacity_saturates() {
     let mut net = PtNet::new();
-    let p = net.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p = net.add_place("p", PtPlaceKind::control(ControlSub::BasicBlock));
     net.places[0].kind.capacity = Some(1);
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p, t, ArcDir::Output, 1, ());
@@ -61,8 +57,8 @@ fn pt_capacity_saturates() {
 #[test]
 fn pt_read_inhibitor_reset_arcs() {
     let mut net = PtNet::new();
-    let p = net.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
-    let q = net.add_place("q", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p = net.add_place("p", PtPlaceKind::control(ControlSub::BasicBlock));
+    let q = net.add_place("q", PtPlaceKind::control(ControlSub::BasicBlock));
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p, t, ArcDir::Read, 1, ());
     net.add_arc(q, t, ArcDir::Reset, 1, ());
@@ -76,7 +72,7 @@ fn pt_read_inhibitor_reset_arcs() {
 
     // Inhibitor arc blocks when the place holds enough tokens.
     let mut net2 = PtNet::new();
-    let p2 = net2.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p2 = net2.add_place("p", PtPlaceKind::control(ControlSub::BasicBlock));
     let t2 = net2.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net2.add_arc(p2, t2, ArcDir::Inhibitor, 1, ());
     assert!(net2.enabled(&Marking::new(vec![0])).contains(&t2));
@@ -353,9 +349,9 @@ fn place_roles_and_the_deadlock_definition_are_shared() {
     // function end. The control point needs its outgoing arc, or it would read
     // as a structural sink and therefore as an ending.
     let mut pt = PtNet::new();
-    let pt_ctrl = pt.add_place("bb", PtPlaceKind::new(PlaceType::BasicBlock));
-    let pt_res = pt.add_place("m", PtPlaceKind::new(PlaceType::Resources));
-    let pt_end = pt.add_place("end", PtPlaceKind::new(PlaceType::FunctionEnd));
+    let pt_ctrl = pt.add_place("bb", PtPlaceKind::control(ControlSub::BasicBlock));
+    let pt_res = pt.add_place("m", PtPlaceKind::resource());
+    let pt_end = pt.add_place("end", PtPlaceKind::control(ControlSub::FunctionEnd));
     let pt_t = pt.add_transition("lock", PtTransitionKind::new(TransitionType::Lock(0)));
     pt.add_arc(pt_ctrl, pt_t, ArcDir::Input, 1, ());
     pt.add_arc(pt_res, pt_t, ArcDir::Input, 1, ());
@@ -393,8 +389,8 @@ fn an_unannotated_exit_is_terminal_because_it_is_a_sink() {
     // A detached thread's last place: the lowering never labelled it, but no arc
     // can take the token anywhere, so it is an ending rather than a deadlock.
     let mut net = PtNet::new();
-    let start = net.add_place("bb0", PtPlaceKind::new(PlaceType::BasicBlock));
-    let stranded = net.add_place("bb1", PtPlaceKind::new(PlaceType::BasicBlock));
+    let start = net.add_place("bb0", PtPlaceKind::control(ControlSub::BasicBlock));
+    let stranded = net.add_place("bb1", PtPlaceKind::control(ControlSub::BasicBlock));
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(start, t, ArcDir::Input, 1, ());
     net.add_arc(stranded, t, ArcDir::Output, 1, ());
@@ -499,8 +495,8 @@ fn a_wait_point_is_derived_from_the_way_out_not_from_the_place_kind() {
     // P/T parks the same thread in front of its single `Wait` transition, so the
     // question has to be asked of the way *out* to work for both frontends.
     let mut pt = PtNet::new();
-    let before = pt.add_place("bb0", PtPlaceKind::new(PlaceType::BasicBlock));
-    let after = pt.add_place("bb1", PtPlaceKind::new(PlaceType::BasicBlock));
+    let before = pt.add_place("bb0", PtPlaceKind::control(ControlSub::BasicBlock));
+    let after = pt.add_place("bb1", PtPlaceKind::control(ControlSub::BasicBlock));
     let w = pt.add_transition("wait", PtTransitionKind::new(TransitionType::Wait));
     pt.add_arc(before, w, ArcDir::Input, 1, ());
     pt.add_arc(after, w, ArcDir::Output, 1, ());
@@ -516,7 +512,7 @@ fn a_wait_point_is_derived_from_the_way_out_not_from_the_place_kind() {
 #[test]
 fn conflict_sets_are_structural_and_serve_both_frontends() {
     let mut pt = PtNet::new();
-    let shared = pt.add_place("m", PtPlaceKind::new(PlaceType::Resources));
+    let shared = pt.add_place("m", PtPlaceKind::resource());
     let a = pt.add_transition("a", PtTransitionKind::new(TransitionType::Lock(0)));
     let b = pt.add_transition("b", PtTransitionKind::new(TransitionType::Lock(0)));
     pt.add_arc(shared, a, ArcDir::Input, 1, ());
@@ -577,8 +573,8 @@ fn incidence_matrix_of_a_relay_is_minus_one_plus_one() {
 #[test]
 fn incidence_aggregates_parallel_arcs_and_excludes_test_arcs() {
     let mut net = PtNet::new();
-    let p = net.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
-    let q = net.add_place("q", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p = net.add_place("p", PtPlaceKind::control(ControlSub::BasicBlock));
+    let q = net.add_place("q", PtPlaceKind::control(ControlSub::BasicBlock));
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p, t, ArcDir::Input, 2, ());
     net.add_arc(p, t, ArcDir::Input, 3, ());
@@ -603,7 +599,7 @@ fn incidence_aggregates_parallel_arcs_and_excludes_test_arcs() {
 #[test]
 fn incidence_self_loop_cancels_in_c_but_stays_in_adjacency() {
     let mut net = PtNet::new();
-    let p = net.add_place("p", PtPlaceKind::new(PlaceType::BasicBlock));
+    let p = net.add_place("p", PtPlaceKind::control(ControlSub::BasicBlock));
     let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(p, t, ArcDir::Input, 1, ());
     net.add_arc(p, t, ArcDir::Output, 1, ());

@@ -1,4 +1,5 @@
-use crate::pt::{PlaceType, TransitionType};
+use crate::net::PlaceRole;
+use crate::pt::TransitionType;
 
 use super::ReductionStep;
 use super::graph::{GraphTransition, ReductionGraph};
@@ -24,7 +25,7 @@ impl ReductionGraph {
                 if self.places[place_idx].removed {
                     continue;
                 }
-                if self.places[place_idx].kind.place_type == PlaceType::Resources {
+                if self.places[place_idx].kind.is_resource() {
                     continue;
                 }
                 if self.places[place_idx].tokens != 0 {

@@ -1,5 +1,5 @@
-use crate::net::PlaceId;
-use crate::pt::{PlaceType, TransitionType};
+use crate::net::{PlaceId, PlaceRole};
+use crate::pt::TransitionType;
 
 use super::ReductionStep;
 use super::graph::{GraphTransition, ReductionGraph};
@@ -25,7 +25,7 @@ impl ReductionGraph {
                 if self.places[head_idx].removed {
                     continue;
                 }
-                if self.places[head_idx].kind.place_type == PlaceType::Resources {
+                if self.places[head_idx].kind.is_resource() {
                     continue;
                 }
                 if self.places[head_idx].outgoing.len() != 1 {
@@ -66,7 +66,7 @@ impl ReductionGraph {
                         valid_chain = false;
                         break;
                     }
-                    if self.places[next_place].kind.place_type == PlaceType::Resources {
+                    if self.places[next_place].kind.is_resource() {
                         valid_chain = false;
                         break;
                     }
@@ -105,7 +105,7 @@ impl ReductionGraph {
                 }
 
                 let tail_idx = *place_chain.last().unwrap();
-                if self.places[tail_idx].kind.place_type == PlaceType::Resources {
+                if self.places[tail_idx].kind.is_resource() {
                     continue;
                 }
                 let consistent_weight = weights.windows(2).all(|window| window[0] == window[1]);

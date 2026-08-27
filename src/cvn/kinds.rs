@@ -9,55 +9,20 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::net::{Net, State};
+use crate::net::{Net, PlaceClass, State};
 
 use super::expr::{BoolExpr, Val, VarUpdate};
 
-/// Place kind (two classes: control flow / resource).
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum PlaceKind {
-    Control(ControlSub),
-    Resource(ResourceType),
-}
+pub use crate::net::ControlSub;
 
-/// Control-place structural sub-class: one variant per role an analysis
-/// distinguishes, and no more.
+/// The CVN's place kind: the shared [`PlaceClass`] with ConcIR's resource types
+/// on the resource arm.
 ///
-/// There is no `Statement` / `BasicBlock` split, because the two are the same
-/// role at two granularities — ConcIR's flat statement list yields one control
-/// point per statement, MIR one per basic block — and that is exactly the
-/// precision difference between the CVN and the P/T net, not a difference in
-/// what the place *is*.
-///
-/// There is no `ThreadEnd` either. In ConcIR a thread **is** a function:
-/// `spawn`, `scope`, and `async_call` all target an ordinary function, and the
-/// same function can be both called and spawned. Being a thread's terminal is
-/// therefore a property of the call site, which a place kind cannot express.
-///
-/// There is no `CallWait` or `WaitPoint`. Both named the *operation* a token is
-/// waiting on, and in both frontends that belongs to the transition:
-/// `TransitionType::Wait` / `Function` on the P/T side,
-/// [`CondvarWaitEnter`](TransitionKind::CondvarWaitEnter) / [`Call`](TransitionKind::Call)
-/// here, with source attribution in a *field* (`PtPlaceKind::span`,
-/// [`CvnTransition::anchors`]) rather than a variant. Whether a token is parked
-/// on an event that may never arrive is still asked — as
-/// [`Net::is_wait_point`](crate::net::Net::is_wait_point), derived from the
-/// transitions that can carry the token away.
-///
-/// Lowering still creates whatever intermediate places it needs — a condvar
-/// wait or reacquire point, a spawn bridge, a call's return point — those are
-/// [`ControlSub::BasicBlock`] with a telling name rather than variants of their
-/// own.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ControlSub {
-    /// A point in the control flow: one ConcIR statement, or one MIR basic
-    /// block.
-    BasicBlock,
-    FunctionStart,
-    /// Where a function's control comes to rest, and so also where a spawned
-    /// function's thread ends.
-    FunctionEnd,
-}
+/// The payload is what P/T's arm lacks, and it is load-bearing here: the
+/// resource type decides the place's capacity (see the
+/// [`PlaceCapacity`](crate::net::PlaceCapacity) impl), because in ConcIR the
+/// resource identity already *is* the place identity.
+pub type PlaceKind = PlaceClass<ResourceType>;
 
 /// Resource type (determines the initial-token semantics and the capacity).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

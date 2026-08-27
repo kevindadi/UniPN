@@ -5,18 +5,19 @@
 //! [`ArcDir`](crate::net::ArcDir) already distinguishes
 //! input/output/read/inhibitor/reset.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::net::Net;
+use crate::net::{ControlSub, Net, PlaceClass};
 
-/// ConcBugDect place classification.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum PlaceType {
-    Resources,
-    FunctionStart,
-    FunctionEnd,
-    BasicBlock,
-}
+/// ConcBugDect's place classification: the shared [`PlaceClass`] with an empty
+/// resource arm.
+///
+/// The arm carries nothing because P/T keeps a resource's *identity* on the
+/// transition that touches it (`TransitionType::Lock(alias)`) and its bound in
+/// [`PtPlaceKind::capacity`], where the CVN instead derives both from a
+/// `ResourceType`. The control arm is shared verbatim — the two frontends had
+/// converged on the same three roles, and now the type says so.
+pub type PlaceType = PlaceClass<()>;
 
 /// Atomic memory ordering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -88,6 +89,7 @@ pub enum TransitionType {
 /// ConcBugDect place attributes.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PtPlaceKind {
+    #[serde(deserialize_with = "place_type_accepting_legacy")]
     pub place_type: PlaceType,
     pub span: String,
     /// `None` = unbounded.
@@ -102,6 +104,54 @@ impl PtPlaceKind {
             capacity: None,
         }
     }
+
+    /// A control-flow place. Shorter than spelling the class out, and it keeps
+    /// `PlaceClass::Resource(())` from appearing at call sites.
+    pub fn control(sub: ControlSub) -> Self {
+        Self::new(PlaceClass::Control(sub))
+    }
+
+    /// A shared-resource place.
+    pub fn resource() -> Self {
+        Self::new(PlaceType::RESOURCE)
+    }
+}
+
+/// Read the current `{"Control": "BasicBlock"}` shape *and* the flat
+/// `"BasicBlock"` / `"Resources"` strings ConcBugDect wrote when `PlaceType` was
+/// its own four-variant enum, so nets serialized before the two frontends' place
+/// classifications were unified still load.
+///
+/// Only reading is compatible: serializing now writes the nested shape. The
+/// legacy names are frontend-specific — `"Resources"`, plural — which is why
+/// this sits here rather than on the shared [`PlaceClass`].
+fn place_type_accepting_legacy<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<PlaceType, D::Error> {
+    #[derive(Deserialize)]
+    enum Legacy {
+        Resources,
+        FunctionStart,
+        FunctionEnd,
+        BasicBlock,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Either {
+        // A bare string matches this arm; the nested map cannot, since `Legacy`
+        // has no `Control` or `Resource` variant.
+        Flat(Legacy),
+        Current(PlaceType),
+    }
+
+    Ok(match Either::deserialize(deserializer)? {
+        Either::Flat(Legacy::Resources) => PlaceType::RESOURCE,
+        Either::Flat(Legacy::BasicBlock) => PlaceClass::Control(ControlSub::BasicBlock),
+        Either::Flat(Legacy::FunctionStart) => PlaceClass::Control(ControlSub::FunctionStart),
+        Either::Flat(Legacy::FunctionEnd) => PlaceClass::Control(ControlSub::FunctionEnd),
+        Either::Current(class) => class,
+    })
 }
 
 /// ConcBugDect transition attributes.
