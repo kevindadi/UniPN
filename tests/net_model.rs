@@ -4,8 +4,8 @@ use unipn::cvn::kinds::{ControlSub, CvnTransition, PlaceKind, ResourceType, Tran
 use unipn::net::{ArcDir, Marking};
 use unipn::pt::{PlaceType, PtPlaceKind, PtTransitionKind, TransitionType};
 use unipn::{
-    CvnBuilder, CvnNet, PlaceId, PtNet, TimeInterval, TimedNet, TimedPlaceKind, TimedState,
-    TimedTransitionKind, TransitionId,
+    CvnBuilder, CvnNet, PlaceId, PtNet, TimeInterval, TimedBuilder, TimedNet, TimedPlaceKind,
+    TimedState, TimedTransitionKind, TransitionId,
 };
 
 // ── P/T net ──────────────────────────────────────────────────────────────
@@ -197,13 +197,13 @@ fn timed_transition(earliest: i32, latest: i32) -> TimedTransitionKind {
 }
 
 fn timed_relay() -> (TimedNet, TimedState) {
-    let mut net = TimedNet::new();
-    let p0 = net.add_place("p0", timed_place(None, false));
-    let p1 = net.add_place("p1", timed_place(None, false));
-    let t = net.add_transition("t", timed_transition(1, 5));
-    net.add_arc(p0, t, ArcDir::Input, 1, ());
-    net.add_arc(p1, t, ArcDir::Output, 1, ());
-    (net, TimedState::from(Marking::new(vec![1, 0])))
+    let mut b = TimedBuilder::new();
+    let p0 = b.add_marked_place("p0", timed_place(None, false), 1);
+    let p1 = b.add_place("p1", timed_place(None, false));
+    let t = b.add_transition("t", timed_transition(1, 5));
+    b.add_arc(p0, t, ArcDir::Input, 1, ());
+    b.add_arc(p1, t, ArcDir::Output, 1, ());
+    b.build()
 }
 
 #[test]
@@ -223,19 +223,45 @@ fn timed_net_fires_through_netlike_and_explore() {
 
 #[test]
 fn timed_net_clamps_capacity_and_stays_enabled() {
-    let mut net = TimedNet::new();
-    let src = net.add_place("src", timed_place(None, false));
-    let dst = net.add_place("dst", timed_place(Some(1), true));
-    let t = net.add_transition("produce", timed_transition(0, 0));
-    net.add_arc(src, t, ArcDir::Input, 1, ());
-    net.add_arc(dst, t, ArcDir::Output, 1, ());
+    let mut b = TimedBuilder::new();
+    let src = b.add_marked_place("src", timed_place(None, false), 1);
+    let dst = b.add_marked_place("dst", timed_place(Some(1), true), 1);
+    let t = b.add_transition("produce", timed_transition(0, 0));
+    b.add_arc(src, t, ArcDir::Input, 1, ());
+    b.add_arc(dst, t, ArcDir::Output, 1, ());
+    let (net, state) = b.build();
 
     // Successor capacity does not gate enabling; overflow is clamped.
-    let state = TimedState::from(Marking::new(vec![1, 1]));
     assert_eq!(net.enabled(&state), vec![t]);
     let fired = NetLike::fire(&net, &state, t).unwrap();
     assert_eq!(fired.marking.tokens(src), 0);
     assert_eq!(fired.marking.tokens(dst), 1);
+}
+
+#[test]
+fn overflow_is_reported_only_for_non_saturating_places() {
+    // Same clamp on two places, but only the non-saturating one is a fault:
+    // a saturating place is *meant* to absorb the overflow.
+    let build = |saturate: bool| {
+        let mut b = TimedBuilder::new();
+        let src = b.add_marked_place("src", timed_place(None, false), 1);
+        let dst = b.add_marked_place("dst", timed_place(Some(1), saturate), 1);
+        let t = b.add_transition("produce", timed_transition(0, 0));
+        b.add_arc(src, t, ArcDir::Input, 1, ());
+        b.add_arc(dst, t, ArcDir::Output, 1, ());
+        let (net, state) = b.build();
+        (net, state, dst, t)
+    };
+
+    let (net, state, dst, t) = build(true);
+    let (marking, overflowed) = net.fire_reporting_overflow(&state.marking, t);
+    assert_eq!(marking.tokens(dst), 1);
+    assert!(overflowed.is_empty());
+
+    let (net, state, dst, t) = build(false);
+    let (marking, overflowed) = net.fire_reporting_overflow(&state.marking, t);
+    assert_eq!(marking.tokens(dst), 1);
+    assert_eq!(overflowed, vec![dst]);
 }
 
 #[test]

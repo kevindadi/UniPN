@@ -4,7 +4,7 @@
 //! Builds the state-class reachability graph of a P-TPN: time elapse on a joint
 //! DBM, then a branch for every priority-enabled transition that can fire.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::net::{Marking, PlaceId, TransitionId};
 use crate::timed::{INF, TimedNet};
@@ -23,6 +23,10 @@ pub struct Statistics {
     pub total_transitions: usize,
     pub dedup_hits: usize,
     pub truncated: bool,
+    /// Non-saturating places whose token count had to be clamped to capacity
+    /// during the build. Non-empty means the net overflowed somewhere it was
+    /// not supposed to absorb tokens.
+    pub overflowed_places: BTreeSet<PlaceId>,
 }
 
 /// The state-class reachability graph (Vec-based, no petgraph dependency).
@@ -288,9 +292,18 @@ impl<'a> StateClassReachabilityGraph<'a> {
         successor.zone = zone;
     }
 
-    pub fn fire(&self, elapsed: &StateClass, t: usize, successor: &mut StateClass) -> bool {
+    /// Fires `t` from `elapsed`, writing the successor class.
+    ///
+    /// Returns the places the firing had to clamp (see
+    /// [`TimedNet::fire_reporting_overflow`]), or `None` when `t` cannot fire.
+    pub fn fire(
+        &self,
+        elapsed: &StateClass,
+        t: usize,
+        successor: &mut StateClass,
+    ) -> Option<Vec<PlaceId>> {
         if !self.is_firable(elapsed, t) {
-            return false;
+            return None;
         }
 
         // Step 1: intersect the firing-domain constraint h_t >= downSI(t).
@@ -298,12 +311,15 @@ impl<'a> StateClassReachabilityGraph<'a> {
         let idx = elapsed.exec_index(t) as usize;
         let lower = self.effective_earliest(t);
         if !fired.tighten(0, idx, -lower) {
-            return false;
+            return None;
         }
 
         // Step 2: discrete token shuffle.
         *successor = StateClass::default();
-        successor.marking = self.net.fire(&elapsed.marking, TransitionId(t));
+        let (marking, overflowed) = self
+            .net
+            .fire_reporting_overflow(&elapsed.marking, TransitionId(t));
+        successor.marking = marking;
 
         // Steps 3 & 4: recompute sets + layout, rebuild zone.
         self.recompute_sets(successor);
@@ -314,7 +330,7 @@ impl<'a> StateClassReachabilityGraph<'a> {
         let firing_instant = lower.max(h_lower);
         successor.elapsed_time = elapsed.elapsed_time + 0.max(firing_instant) as f64;
 
-        true
+        Some(overflowed)
     }
 
     fn find_match(&self, state: &StateClass) -> Option<usize> {
@@ -368,7 +384,6 @@ impl<'a> StateClassReachabilityGraph<'a> {
         self.vertices_by_marking.clear();
         self.vertices_by_hash.clear();
         self.next_id = 0;
-        crate::timed::reset_overflow_recording();
 
         let mut initial = self.compute_initial_class();
         if self.config.extrapolation {
@@ -422,9 +437,10 @@ impl<'a> StateClassReachabilityGraph<'a> {
                     }
 
                     let mut successor = StateClass::default();
-                    if !self.fire(&elapsed, t, &mut successor) {
+                    let Some(overflowed) = self.fire(&elapsed, t, &mut successor) else {
                         continue;
-                    }
+                    };
+                    self.graph.stats.overflowed_places.extend(overflowed);
                     if self.config.extrapolation {
                         successor.zone.extrapolate(self.extrapolation_k);
                     }

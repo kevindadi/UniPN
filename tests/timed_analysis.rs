@@ -4,8 +4,10 @@ use unipn::analysis::timed::{
     CanonicalizationMode, Scheduling, StateClassReachabilityGraph, TimedReachabilityConfig,
     out_edge_transitions, reachable_markings,
 };
-use unipn::net::{ArcDir, Marking};
-use unipn::{TimeInterval, TimedNet, TimedPlaceKind, TimedTransitionKind, TransitionId};
+use unipn::net::{ArcDir, Marking, PlaceId};
+use unipn::{
+    TimeInterval, TimedBuilder, TimedNet, TimedPlaceKind, TimedTransitionKind, TransitionId,
+};
 
 fn single_transition_net() -> (TimedNet, Marking) {
     let mut net = TimedNet::new();
@@ -74,6 +76,58 @@ fn canonicalization_and_extrapolation_are_configurable() {
     let mut graph = StateClassReachabilityGraph::with_config(&net, marking, config);
     let states = graph.build(100);
     assert_eq!(states, 2);
+}
+
+#[test]
+fn overflow_is_reported_on_the_graph_not_globally() {
+    // `feed` produces into a capacity-1 non-saturating place that already holds
+    // a token, so every firing clamps. The fault belongs to this build's
+    // result, so it is read off the graph.
+    let mut b = TimedBuilder::new();
+    let src = b.add_marked_place(
+        "src",
+        TimedPlaceKind {
+            capacity: None,
+            saturate: false,
+        },
+        1,
+    );
+    let dst = b.add_marked_place(
+        "dst",
+        TimedPlaceKind {
+            capacity: Some(1),
+            saturate: false,
+        },
+        1,
+    );
+    let t = b.add_transition(
+        "feed",
+        TimedTransitionKind {
+            interval: TimeInterval::closed(0, 0),
+            priority: 0,
+            core: 0,
+            suspendable: false,
+        },
+    );
+    b.add_arc(src, t, ArcDir::Input, 1, ());
+    b.add_arc(dst, t, ArcDir::Output, 1, ());
+    let (net, initial) = b.build();
+
+    let mut graph = StateClassReachabilityGraph::new(&net, initial.marking.clone());
+    graph.build(100);
+    assert!(
+        graph
+            .get_graph()
+            .stats
+            .overflowed_places
+            .contains(&PlaceId(dst.index()))
+    );
+
+    // A fresh build starts from a clean report — no global state to reset.
+    let mut again = StateClassReachabilityGraph::new(&net, initial.marking);
+    assert!(again.get_graph().stats.overflowed_places.is_empty());
+    again.build(100);
+    assert_eq!(graph.get_graph().stats.overflowed_places.len(), 1);
 }
 
 fn same_core_priority_net() -> (TimedNet, Marking) {

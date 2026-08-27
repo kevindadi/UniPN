@@ -33,6 +33,7 @@ Construction follows the same rule. [`NetBuilder<PK, TK, AK, E>`](src/net/builde
 ```rust
 pub type PtBuilder = NetBuilder<PtPlaceKind, PtTransitionKind, ()>;
 pub type CvnBuilder = NetBuilder<PlaceKind, CvnTransition, CvnArcKind, CvnExtra>;
+pub type TimedBuilder = NetBuilder<TimedPlaceKind, TimedTransitionKind, (), TimedExtra>;
 ```
 
 ## Source layout
@@ -43,7 +44,7 @@ Three layers: the generic core, one directory per frontend, and the analyses.
 src/
   net/      mod.rs (the model) + ids.rs + incidence.rs + firing.rs + builder.rs
   pt/       kinds.rs + semantics.rs + builder.rs + dot.rs
-  timed/    kinds.rs + semantics.rs + interval.rs
+  timed/    kinds.rs + semantics.rs + interval.rs + builder.rs
   cvn/      kinds.rs + semantics.rs + builder.rs + expr.rs + dot.rs
   analysis/ mod.rs (Semantics + NetLike + explore) + pt/ + cvn/ + timed/
 ```

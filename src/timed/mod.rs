@@ -7,18 +7,20 @@
 //! - [`kinds`] — the `PK`/`TK` payloads plus the [`TimedNet`]/[`TimedState`]
 //!   aliases;
 //! - [`semantics`] — the discrete (untimed) firing exposed through
-//!   [`NetLike`](crate::analysis::NetLike), plus overflow recording.
+//!   [`NetLike`](crate::analysis::NetLike), including the overflow report;
+//! - [`builder`] — [`TimedBuilder`], the net-plus-marking construction.
 //!
 //! Time is an *annotation* here. Clock zones are **not** part of
 //! [`TimedState`]: the state-class (DBM) reachability lives in
 //! `analysis::timed` and is compiled only with the `timed` feature.
 
+pub mod builder;
 pub mod interval;
 pub mod kinds;
 pub mod semantics;
 
+pub use builder::TimedBuilder;
 pub use interval::{INF, TimeInterval};
 pub use kinds::{
     CONTROL_TRANSITION_CORE, TimedExtra, TimedNet, TimedPlaceKind, TimedState, TimedTransitionKind,
 };
-pub use semantics::{overflowed_places, reset_overflow_recording};

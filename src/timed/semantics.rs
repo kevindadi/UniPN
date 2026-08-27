@@ -1,31 +1,15 @@
 //! Discrete (untimed) firing for [`TimedNet`].
 //!
 //! Successor capacity never gates a transition: overflow is clamped on firing
-//! instead. Clamping a *non-saturating* place is invalid behavior, so it is
-//! recorded for the metrics layer.
-
-use std::cell::RefCell;
+//! instead. Clamping a *non-saturating* place is invalid behavior, so firing
+//! reports it — see [`TimedNet::fire_reporting_overflow`]. The report is a
+//! return value, not a global: the state-class explorer accumulates it into the
+//! graph it builds.
 
 use crate::analysis::Semantics;
-use crate::net::{Marking, PlaceCapacity, State, TransitionId};
+use crate::net::{Marking, PlaceCapacity, PlaceId, State, TransitionId};
 
 use super::kinds::{TimedNet, TimedPlaceKind, TimedState};
-
-// Overflow recording: `fire` clamps every overflowing place to capacity, but a
-// NON-saturating place being clamped is an invalid behavior and is recorded so
-// the metrics layer can report it. Reset at the start of each build.
-thread_local! {
-    static OVERFLOW: RefCell<std::collections::BTreeSet<usize>> =
-        const { RefCell::new(std::collections::BTreeSet::new()) };
-}
-
-pub fn reset_overflow_recording() {
-    OVERFLOW.with(|o| o.borrow_mut().clear());
-}
-
-pub fn overflowed_places() -> Vec<usize> {
-    OVERFLOW.with(|o| o.borrow().iter().copied().collect())
-}
 
 impl PlaceCapacity for TimedPlaceKind {
     fn capacity(&self) -> Option<usize> {
@@ -34,27 +18,37 @@ impl PlaceCapacity for TimedPlaceKind {
 }
 
 impl TimedNet {
-    /// Structural enabling. Successor capacity is not consulted (overflow on
-    /// non-saturating places is clamped on firing instead).
+    /// Structural enabling. Successor capacity is not consulted (overflow is
+    /// clamped on firing instead).
     pub fn is_enabled(&self, marking: &Marking, transition: TransitionId) -> bool {
         self.structurally_enabled(marking, transition)
     }
 
-    /// Fires a transition: consumes input tokens and produces output tokens,
-    /// clamping each output place to its capacity.
+    /// Fires a transition, reporting the places whose count had to be clamped.
     ///
-    /// This inherent method does not re-check enabling (the timed state-class
-    /// explorer already has). [`NetLike::fire`](crate::analysis::NetLike::fire)
-    /// returns `None` when the transition is not structurally enabled.
-    pub fn fire(&self, marking: &Marking, transition: TransitionId) -> Marking {
+    /// Only *non-saturating* places are reported: a saturating place absorbing
+    /// overflow is intended behavior, while a non-saturating one being clamped
+    /// means the net lost tokens it should not have.
+    ///
+    /// Enabling is not re-checked (the state-class explorer already has).
+    pub fn fire_reporting_overflow(
+        &self,
+        marking: &Marking,
+        transition: TransitionId,
+    ) -> (Marking, Vec<PlaceId>) {
         let mut next = marking.clone();
         self.consume_inputs(&mut next, transition);
-        for place in self.produce_outputs_clamped(&mut next, transition) {
-            if self.place(place).is_some_and(|p| !p.kind.saturate) {
-                OVERFLOW.with(|o| o.borrow_mut().insert(place.index()));
-            }
-        }
-        next
+        let overflowed = self
+            .produce_outputs_clamped(&mut next, transition)
+            .into_iter()
+            .filter(|place| self.place(*place).is_some_and(|p| !p.kind.saturate))
+            .collect();
+        (next, overflowed)
+    }
+
+    /// Fires a transition, discarding the overflow report.
+    pub fn fire(&self, marking: &Marking, transition: TransitionId) -> Marking {
+        self.fire_reporting_overflow(marking, transition).0
     }
 }
 
