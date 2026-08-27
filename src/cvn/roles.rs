@@ -1,10 +1,9 @@
-//! How the CVN's kinds answer the shared [`PlaceRole`] / [`TransitionRole`]
-//! questions.
+//! How the CVN's kinds answer the shared [`TransitionRole`] questions.
 //!
 //! Only the transition side is here. The place side is not the CVN's to answer
 //! any more: [`PlaceKind`](super::kinds::PlaceKind) *is* the shared
-//! [`PlaceClass`](crate::net::PlaceClass), so it inherits the one `PlaceRole`
-//! implementation both frontends use.
+//! [`PlaceClass`](crate::net::PlaceClass), so it inherits the one
+//! [`PlaceRole`](crate::net::PlaceRole) implementation both frontends use.
 //!
 //! The transition side is where
 //! the CVN's finer lowering shows: because it splits a condvar wait into

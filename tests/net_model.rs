@@ -3,8 +3,10 @@ use unipn::analysis::{
 };
 use unipn::cvn::expr::{BoolExpr, CmpOp, Expr, Val, VarUpdate};
 use unipn::cvn::kinds::{CvnArcKind, CvnTransition, PlaceKind, ResourceType, TransitionKind};
-use unipn::net::{ArcDir, ControlSub, Marking, TransitionRole};
-use unipn::pt::{AliasId, AtomicOrdering, PtPlaceKind, PtTransitionKind, TransitionType};
+use unipn::net::{ArcDir, ControlSub, Marking, PlaceClass, PlaceRole, TransitionRole};
+use unipn::pt::{
+    AliasId, AtomicOrdering, PlaceType, PtPlaceKind, PtTransitionKind, TransitionType,
+};
 use unipn::{
     CvnBuilder, CvnNet, PlaceId, PtNet, TimeInterval, TimedBuilder, TimedNet, TimedPlaceKind,
     TimedState, TimedTransitionKind, TransitionId,
@@ -382,6 +384,66 @@ fn place_roles_and_the_deadlock_definition_are_shared() {
     let all = Marking::new(vec![1, 1, 1]);
     assert_eq!(pt.blocked_places(&all), vec![pt_ctrl]);
     assert_eq!(cvn.blocked_places(&all), vec![cvn_ctrl]);
+}
+
+#[test]
+fn both_frontends_instantiate_one_place_classification() {
+    // The two differ in the resource payload and in nothing else: P/T keeps a
+    // resource's identity on the transition and its bound in a field, so its arm
+    // is empty, while the CVN's arm decides the capacity.
+    let pt_res: PlaceType = PlaceType::RESOURCE;
+    let cvn_res: PlaceKind = PlaceClass::Resource(ResourceType::Mutex);
+    assert!(pt_res.is_resource() && cvn_res.is_resource());
+    assert!(pt_res.resource().is_some() && cvn_res.resource() == Some(&ResourceType::Mutex));
+
+    // The control arm is literally the same type, so the one `PlaceRole` impl
+    // answers for both and the two can no longer drift apart.
+    for sub in [
+        ControlSub::BasicBlock,
+        ControlSub::FunctionStart,
+        ControlSub::FunctionEnd,
+    ] {
+        let pt: PlaceType = PlaceClass::Control(sub);
+        let cvn: PlaceKind = PlaceClass::Control(sub);
+        assert_eq!(pt.is_terminal(), cvn.is_terminal());
+        assert_eq!(pt.control(), Some(sub));
+        assert!(!pt.is_resource() && !cvn.is_resource());
+    }
+    assert!(PlaceType::Control(ControlSub::FunctionEnd).is_terminal());
+}
+
+#[test]
+fn a_pt_place_kind_written_before_the_merge_still_loads() {
+    // ConcBugDect wrote `place_type` as a flat string while `PlaceType` was its
+    // own four-variant enum. Reading that has to keep working, or every net
+    // persisted before the merge becomes unreadable.
+    let kind: PtPlaceKind =
+        serde_json::from_str(r#"{"place_type":"Resources","span":"main.rs:4:9","capacity":null}"#)
+            .unwrap();
+    assert_eq!(kind.place_type, PlaceType::RESOURCE);
+    assert_eq!(kind.span, "main.rs:4:9");
+
+    let kind: PtPlaceKind =
+        serde_json::from_str(r#"{"place_type":"BasicBlock","span":"","capacity":3}"#).unwrap();
+    assert_eq!(kind.place_type, PlaceClass::Control(ControlSub::BasicBlock));
+    assert_eq!(kind.capacity, Some(3));
+
+    // Writing uses the nested shape, and reading it back is the round trip.
+    let written = serde_json::to_string(&PtPlaceKind::control(ControlSub::FunctionEnd)).unwrap();
+    assert!(
+        written.contains(r#""place_type":{"Control":"FunctionEnd"}"#),
+        "{written}"
+    );
+    assert_eq!(
+        serde_json::from_str::<PtPlaceKind>(&written).unwrap(),
+        PtPlaceKind::control(ControlSub::FunctionEnd)
+    );
+
+    // The CVN's wire format is untouched by the merge: it was already nested.
+    assert_eq!(
+        serde_json::to_string(&PlaceKind::Resource(ResourceType::Mutex)).unwrap(),
+        r#"{"Resource":"Mutex"}"#
+    );
 }
 
 #[test]

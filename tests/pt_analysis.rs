@@ -1,7 +1,8 @@
 use unipn::analysis::pt::{
     BoundnessResult, StateGraph, StateGraphConfig, check_boundness, check_place_boundness,
 };
-use unipn::pt::{PlaceType, PtNet, PtPlaceKind, PtTransitionKind, TransitionType};
+use unipn::net::ControlSub;
+use unipn::pt::{PtNet, PtPlaceKind, PtTransitionKind, TransitionType};
 use unipn::{ArcDir, Marking, PlaceId, TransitionId};
 
 fn relay_net() -> (PtNet, Marking) {
@@ -66,8 +67,8 @@ fn a_token_stranded_before_a_firable_transition_is_a_deadlock() {
 #[test]
 fn a_finished_thread_is_blocked_but_not_deadlocked() {
     let mut net = PtNet::new();
-    let start = net.add_place("start", PtPlaceKind::new(PlaceType::FunctionStart));
-    let lock = net.add_place("mutex", PtPlaceKind::new(PlaceType::Resources));
+    let start = net.add_place("start", PtPlaceKind::control(ControlSub::FunctionStart));
+    let lock = net.add_place("mutex", PtPlaceKind::resource());
     let end = net.add_place("end", PtPlaceKind::control(ControlSub::FunctionEnd));
     let t = net.add_transition("run", PtTransitionKind::new(TransitionType::Normal));
     net.add_arc(start, t, ArcDir::Input, 1, ());

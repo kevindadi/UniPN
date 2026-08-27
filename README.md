@@ -100,6 +100,17 @@ Some questions an analysis asks are the same for more than one frontend, while t
 
 The timed net implements neither — PTPN's places carry no control/resource split and it classifies schedulability, not deadlocks. A bound is only paid where it is used.
 
+On the place side the sharing goes further than the question: the *kind* is shared too. [`net::places`](src/net/places.rs) holds
+
+```rust
+pub enum ControlSub { BasicBlock, FunctionStart, FunctionEnd }
+pub enum PlaceClass<R> { Control(ControlSub), Resource(R) }
+```
+
+and `pt::PlaceType` is `PlaceClass<()>` while `cvn::PlaceKind` is `PlaceClass<ResourceType>` — type aliases, like the net aliases themselves. P/T and the CVN had arrived at the same three control roles independently, so `PlaceRole` is implemented once and the agreement can no longer drift. `R` is the arm that genuinely differs and stays the frontend's: the CVN's resource type decides the place's capacity, because in ConcIR the resource identity already is the place identity, while P/T keeps identity on the transition and its bound in a field. Construct P/T places with `PtPlaceKind::control(sub)` and `PtPlaceKind::resource()`.
+
+This is a shared enum where `TransitionRole` is a set of predicates, and the difference is deliberate: transitions could not merge because the two frontends' variants disagree on shape, and the control variants carry no payload in either and mean the same thing in both. `PtPlaceKind` still deserializes the flat `"BasicBlock"` / `"Resources"` strings written before the merge; it now writes the nested shape.
+
 ## Analysis
 
 Analysis is not part of the model. The [`analysis`](src/analysis/mod.rs) module provides the minimal firing contract [`NetLike`] plus the checks that depend on no kind at all: `explore` (BFS/DFS reachability), `find_deadlocks`, `conflict_sets` (transitions competing for an input place), and `unfired_transitions` (behavioral dead code). The explorer only reports *blocked* states; a deadlock verdict comes from `PlaceRole` or from the caller.

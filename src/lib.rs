@@ -19,8 +19,9 @@
 //!   (identifiers), [`net::incidence`] (adjacency / incidence matrix),
 //!   [`net::firing`] (the structural firing primitives all three nets share),
 //!   [`net::roles`] ([`PlaceRole`] / [`TransitionRole`], the questions an
-//!   analysis asks a kind), and [`net::builder`] ([`NetBuilder`], which every
-//!   frontend builder aliases);
+//!   analysis asks a kind), [`net::places`] ([`PlaceClass`] / [`ControlSub`],
+//!   the place classification P/T and the CVN share), and [`net::builder`]
+//!   ([`NetBuilder`], which every frontend builder aliases);
 //! - [`pt`], [`timed`], [`cvn`] — one directory per frontend, each holding its
 //!   `kinds` (the payloads and net alias) and `semantics` (its firing), plus
 //!   whatever else that frontend needs (`builder`, `expr`, `interval`, `dot`);
@@ -36,8 +37,10 @@
 //! over shared resources, with the CVN additionally keeping guards and variable
 //! updates — so they answer the same [`PlaceRole`] / [`TransitionRole`]
 //! questions and share the deadlock, conflict, and dead-transition definitions
-//! that follow from them. What they do *not* share is the state
-//! representation; see `CLAUDE.md` for why.
+//! that follow from them. They also share the place classification itself:
+//! [`PlaceType`] and [`PlaceKind`] are both [`PlaceClass`], differing only in
+//! the resource payload. What they do *not* share is the state representation;
+//! see `CLAUDE.md` for why.
 //!
 //! Reading an external file *into* one of these nets is the sibling crate
 //! `unipn-transfer` (ConcIR JSON → [`cvn::CvnNet`] today, PNML later). It is
@@ -55,12 +58,12 @@ pub use analysis::{
 };
 pub use cvn::expr::{BoolExpr, CmpOp, ConcreteVal, Expr, Op, Val, VarUpdate};
 pub use cvn::{
-    ControlSub, CvnArcKind, CvnBuilder, CvnExtra, CvnNet, CvnState, CvnTransition, PlaceKind,
-    ResourceType, TransitionKind, VarStore,
+    CvnArcKind, CvnBuilder, CvnExtra, CvnNet, CvnState, CvnTransition, PlaceKind, ResourceType,
+    TransitionKind, VarStore,
 };
 pub use net::{
-    Arc, ArcDir, Incidence, IncidenceMatrix, Marking, Net, NetBuilder, Place, PlaceCapacity,
-    PlaceId, PlaceRole, State, Transition, TransitionId, TransitionRole,
+    Arc, ArcDir, ControlSub, Incidence, IncidenceMatrix, Marking, Net, NetBuilder, Place,
+    PlaceCapacity, PlaceClass, PlaceId, PlaceRole, State, Transition, TransitionId, TransitionRole,
 };
 pub use pt::{
     AliasId, AtomicOrdering, PlaceType, PtBuilder, PtNet, PtPlaceKind, PtTransitionKind,

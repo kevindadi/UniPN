@@ -30,7 +30,7 @@ impl StatePlaceSnapshot {
     fn new(
         place_id: PlaceId,
         name: String,
-        place_type: &PlaceType,
+        place_type: PlaceType,
         span: &str,
         tokens: usize,
         capacity: usize,
@@ -38,7 +38,7 @@ impl StatePlaceSnapshot {
         Self {
             place: place_id,
             name,
-            place_type: place_type.clone(),
+            place_type,
             span: span.to_string(),
             tokens,
             capacity,
@@ -107,7 +107,7 @@ impl StateNode {
                 places.push(StatePlaceSnapshot::new(
                     place_id,
                     place.name.clone(),
-                    &place.kind.place_type,
+                    place.kind.place_type,
                     &place.kind.span,
                     tokens,
                     place.kind.capacity.unwrap_or(usize::MAX),
