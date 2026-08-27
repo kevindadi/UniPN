@@ -2,8 +2,10 @@
 //! questions.
 //!
 //! The place side is the definition the CVN deadlock check already used, now
-//! stated once for both frontends. The transition side is where the CVN's finer
-//! lowering shows: because it splits a condvar wait into
+//! stated once for both frontends and matching `PtPlaceKind` variant for
+//! variant — `Control(FunctionEnd)` against `PlaceType::FunctionEnd`,
+//! `Resource(_)` against `PlaceType::Resources`. The transition side is where
+//! the CVN's finer lowering shows: because it splits a condvar wait into
 //! [`CondvarWaitEnter`](TransitionKind::CondvarWaitEnter) and
 //! [`CondvarReacquire`](TransitionKind::CondvarReacquire), both halves get
 //! classified, while P/T's single `Wait` transition can be classified as
@@ -19,10 +21,7 @@ impl PlaceRole for PlaceKind {
     }
 
     fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            Self::Control(ControlSub::ThreadEnd | ControlSub::FunctionEnd)
-        )
+        matches!(self, Self::Control(ControlSub::FunctionEnd))
     }
 }
 

@@ -16,8 +16,9 @@ pub fn to_dot(net: &CvnNet) -> String {
             PlaceKind::Resource(ResourceType::Semaphore { .. }) => "sem",
             PlaceKind::Resource(ResourceType::Channel) => "ch",
             PlaceKind::Resource(ResourceType::Condvar) => "cv",
-            PlaceKind::Control(ControlSub::ThreadEnd) => "end",
+            PlaceKind::Control(ControlSub::FunctionEnd) => "end",
             PlaceKind::Control(ControlSub::WaitPoint) => "wait",
+            PlaceKind::Control(ControlSub::CallWait) => "call",
             _ => "",
         };
         out.push_str(&format!(

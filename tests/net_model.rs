@@ -87,7 +87,7 @@ fn pt_read_inhibitor_reset_arcs() {
 
 fn cvn_counter() -> (CvnNet, unipn::CvnState) {
     let mut b = CvnBuilder::new();
-    let p = b.add_place("p", PlaceKind::Control(ControlSub::Statement));
+    let p = b.add_place("p", PlaceKind::Control(ControlSub::BasicBlock));
     let t = b.add_transition("inc", CvnTransition::new(TransitionKind::Sequential));
     let guard = BoolExpr::Cmp {
         op: CmpOp::Lt,
@@ -147,8 +147,8 @@ fn dropping_a_dead_variable_merges_equivalent_states() {
     // that still holds `x` keeps them apart.
     let build = |scope_end: bool| {
         let mut b = CvnBuilder::new();
-        let p0 = b.add_place("p0", PlaceKind::Control(ControlSub::Statement));
-        let p1 = b.add_place("p1", PlaceKind::Control(ControlSub::Statement));
+        let p0 = b.add_place("p0", PlaceKind::Control(ControlSub::BasicBlock));
+        let p1 = b.add_place("p1", PlaceKind::Control(ControlSub::BasicBlock));
         let p2 = b.add_place("p2", PlaceKind::Control(ControlSub::FunctionEnd));
         let ta = b.add_transition("a", CvnTransition::new(TransitionKind::BranchTrue));
         let tb = b.add_transition("b", CvnTransition::new(TransitionKind::BranchFalse));
@@ -308,7 +308,7 @@ fn place_capacity_is_uniform_across_frontends() {
         "s",
         PlaceKind::Resource(ResourceType::Semaphore { count: 3 }),
     );
-    let ctrl = b.add_place("c", PlaceKind::Control(ControlSub::Statement));
+    let ctrl = b.add_place("c", PlaceKind::Control(ControlSub::BasicBlock));
     let (cvn, _) = b.build();
     assert_eq!(cvn.capacity_of(mutex), Some(1));
     assert_eq!(cvn.capacity_of(sem), Some(3));
@@ -327,7 +327,7 @@ fn place_roles_and_the_deadlock_definition_are_shared() {
     let mut b = CvnBuilder::new();
     let cvn_ctrl = b.add_place("bb", PlaceKind::Control(ControlSub::BasicBlock));
     let cvn_res = b.add_place("m", PlaceKind::Resource(ResourceType::Mutex));
-    let cvn_end = b.add_place("end", PlaceKind::Control(ControlSub::ThreadEnd));
+    let cvn_end = b.add_place("end", PlaceKind::Control(ControlSub::FunctionEnd));
     let (cvn, _) = b.build();
 
     assert!(pt.is_resource(pt_res) && cvn.is_resource(cvn_res));

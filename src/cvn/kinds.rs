@@ -20,24 +20,38 @@ pub enum PlaceKind {
     Resource(ResourceType),
 }
 
-/// Control-place structural sub-class (visualization/anchoring + the default
-/// semantic predicates).
+/// Control-place structural sub-class: one variant per role an analysis
+/// distinguishes, and no more.
+///
+/// There is no `Statement` / `BasicBlock` split, because the two are the same
+/// role at two granularities — ConcIR's flat statement list yields one control
+/// point per statement, MIR one per basic block — and that is exactly the
+/// precision difference between the CVN and the P/T net, not a difference in
+/// what the place *is*.
+///
+/// There is no `ThreadEnd` either. In ConcIR a thread **is** a function:
+/// `spawn`, `scope`, and `async_call` all target an ordinary function, and the
+/// same function can be both called and spawned. Being a thread's terminal is
+/// therefore a property of the call site, which a place kind cannot express.
+///
+/// Lowering still creates whatever intermediate places it needs — a condvar
+/// reacquire point, a spawn bridge — those are [`ControlSub::BasicBlock`] with
+/// a telling name rather than variants of their own.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ControlSub {
-    Statement,
+    /// A point in the control flow: one ConcIR statement, or one MIR basic
+    /// block.
     BasicBlock,
     FunctionStart,
+    /// Where a function's control comes to rest, and so also where a spawned
+    /// function's thread ends.
     FunctionEnd,
-    /// Function return point (ordinary control transfer, **not** thread end).
-    Return,
-    /// Thread-scope terminal (the return place of the entry / a spawned
-    /// function, annotated by the frontend).
-    ThreadEnd,
+    /// Waiting for a callee to return.
     CallWait,
+    /// Waiting on a condvar. A token here waits for a notification that may
+    /// never arrive, which is a different diagnosis from being stuck on an
+    /// ordinary control point.
     WaitPoint,
-    Reacquire,
-    SpawnBridge,
-    TestPoint,
 }
 
 /// Resource type (determines the initial-token semantics).

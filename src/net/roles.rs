@@ -11,7 +11,7 @@
 //! deadlocks, so `TimedPlaceKind` implements neither trait; a bound is only
 //! paid where it is used.
 
-use crate::net::{Marking, Net, PlaceId};
+use crate::net::{ArcDir, Marking, Net, PlaceId};
 
 /// A place kind that separates shared resources from control-flow points and
 /// knows where a thread may legitimately come to rest.
@@ -22,6 +22,10 @@ pub trait PlaceRole {
 
     /// A place a thread legitimately ends on. A token resting here is a
     /// finished thread, not a stuck one.
+    ///
+    /// Only the annotated answer; [`Net::is_terminal`] additionally accepts a
+    /// place no arc can move a token out of, which covers the exits a lowering
+    /// left unlabelled.
     fn is_terminal(&self) -> bool;
 }
 
@@ -58,15 +62,35 @@ pub trait TransitionRole {
     fn is_unsafe_access(&self) -> bool;
 }
 
+impl<PK, TK, AK> Net<PK, TK, AK> {
+    /// Whether no arc can ever take a token out of `place`: no input arc and no
+    /// reset arc. Read and inhibitor arcs do not count, since neither consumes.
+    ///
+    /// Purely structural, so it needs no kind. It exists to back up
+    /// [`PlaceRole::is_terminal`] where the lowering did not annotate an exit —
+    /// a detached thread's last place, or a MIR block P/T never labelled
+    /// `FunctionEnd`. It does mean a control place that simply *forgot* its
+    /// outgoing arc reads as an ending rather than as a modeling bug, which is
+    /// the price of the fallback.
+    pub fn is_sink(&self, place: PlaceId) -> bool {
+        !self.arcs.iter().any(|arc| {
+            arc.place == place && matches!(arc.direction, ArcDir::Input | ArcDir::Reset)
+        })
+    }
+}
+
 impl<PK: PlaceRole, TK, AK> Net<PK, TK, AK> {
     /// Whether `place` is a shared resource (`false` for an unknown id).
     pub fn is_resource(&self, place: PlaceId) -> bool {
         self.place(place).is_some_and(|p| p.kind.is_resource())
     }
 
-    /// Whether `place` is somewhere a thread legitimately ends.
+    /// Whether `place` is somewhere a thread legitimately ends — annotated as
+    /// such by its kind, or structurally unable to pass a token on
+    /// ([`Net::is_sink`]).
     pub fn is_terminal(&self, place: PlaceId) -> bool {
-        self.place(place).is_some_and(|p| p.kind.is_terminal())
+        self.place(place)
+            .is_some_and(|p| p.kind.is_terminal() || self.is_sink(place))
     }
 
     /// The places whose tokens say a thread is stuck: control-flow places that
