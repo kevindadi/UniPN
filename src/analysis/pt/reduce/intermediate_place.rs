@@ -78,18 +78,17 @@ impl ReductionGraph {
                     data
                 };
 
-                let new_transition_type = if self.transitions[in_transition_idx]
-                    .kind
-                    .transition_type
-                    == self.transitions[out_transition_idx].kind.transition_type
-                {
-                    self.transitions[in_transition_idx]
-                        .kind
-                        .transition_type
-                        .clone()
-                } else {
-                    TransitionType::Normal
-                };
+                let new_transition_type =
+                    if self.transitions[in_transition_idx].kind.transition_type
+                        == self.transitions[out_transition_idx].kind.transition_type
+                    {
+                        self.transitions[in_transition_idx]
+                            .kind
+                            .transition_type
+                            .clone()
+                    } else {
+                        TransitionType::Normal
+                    };
 
                 let new_transition_idx = self.add_transition(GraphTransition::new_with_type(
                     format!("inter_merge#{}", self.merge_counter),

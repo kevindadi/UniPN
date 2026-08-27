@@ -97,9 +97,7 @@ impl ReductionGraph {
                 continue;
             }
 
-            let all_tokens_zero = cycle_places
-                .iter()
-                .all(|idx| self.places[*idx].tokens == 0);
+            let all_tokens_zero = cycle_places.iter().all(|idx| self.places[*idx].tokens == 0);
             if !all_tokens_zero {
                 continue;
             }

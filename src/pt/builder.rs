@@ -74,10 +74,9 @@ impl PtBuilder {
         transition: TransitionId,
         direction: ArcDir,
     ) -> Option<usize> {
-        self.net()
-            .arcs
-            .iter()
-            .position(|a| a.place == place && a.transition == transition && a.direction == direction)
+        self.net().arcs.iter().position(|a| {
+            a.place == place && a.transition == transition && a.direction == direction
+        })
     }
 
     /// A cloned snapshot of the built net + initial marking (without consuming

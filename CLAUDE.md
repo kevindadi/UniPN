@@ -35,10 +35,10 @@ Default feature: `timed` (DBM / state-class reachability in `analysis::timed`). 
 
 The tree has three layers: the generic core (`net/`), one directory per frontend (`pt/`, `timed/`, `cvn/`), and the analyses (`analysis/`). Inside a frontend directory the split is always the same — `kinds.rs` for the `PK`/`TK`/`AK` payloads and the net alias, `semantics.rs` for that net's firing, and then whatever else that frontend needs (`builder.rs`, `expr.rs`, `interval.rs`, `dot.rs`). Every directory's `mod.rs` holds only the module docs, the submodule declarations, and a flat re-export, so paths like `crate::pt::PtNet` stay stable when files move.
 
-- `net`: the single generic model — `Place<K>`, `Transition<K>`, `Arc<K>` (with `ArcDir` and `usize` weight), `Net<PK, TK, AK>`, `Marking` (`Vec<usize>`, index = place id), and `State<E>` (marking + per-net `extra`). No marking lives inside `Net`. Its submodules are `net::ids` (`PlaceId`/`TransitionId`, contiguous `usize`), `net::incidence` (the `Incidence` adjacency snapshot and the ordinary `IncidenceMatrix`), and `net::firing` (the structural firing primitives, below); all are re-exported from `net`, so `use crate::net::{Marking, PlaceId}` works.
+- `net`: the single generic model — `Place<K>`, `Transition<K>`, `Arc<K>` (with `ArcDir` and `usize` weight), `Net<PK, TK, AK>`, `Marking` (`Vec<usize>`, index = place id), and `State<E>` (marking + per-net `extra`). No marking lives inside `Net`. Its submodules are `net::ids` (`PlaceId`/`TransitionId`, contiguous `usize`), `net::incidence` (the `Incidence` adjacency snapshot and the ordinary `IncidenceMatrix`), `net::firing` (the structural firing primitives, below), and `net::builder` (`NetBuilder`, below); all are re-exported from `net`, so `use crate::net::{Marking, PlaceId}` works.
 - `pt`: ConcBugDect's `PtPlaceKind`/`PtTransitionKind` (place/transition metadata) + `PtNet` alias and its P/T firing (structural enabling, outputs clamped to capacity, reset arcs), plus `PtBuilder` and DOT/connectivity diagnostics.
 - `timed`: PTPN's `TimeInterval`/`TimedPlaceKind`/`TimedTransitionKind` + `TimedNet` alias and discrete firing over `TimedState` (`State<TimedExtra>`, marking only); clamping a non-saturating place is recorded as an overflow. The timed **analysis** (DBM/state-class reachability) lives in `analysis::timed` behind the `timed` feature — clock zones stay on `StateClass`, not on `NetLike::State`.
-- `cvn`: ConcPlanVerify's `CvnNet` + `CvnBuilder` + guard/update firing. `cvn::kinds` carries both the place/transition classification (`PlaceKind`, `ControlSub`, `ResourceType`, `TransitionKind`) and the CVN-specific `CvnArcKind`/`CvnTransition`/`CvnExtra`; `cvn::expr` is its value/expression/guard language. Both were previously the top-level `model` and `expr` modules.
+- `cvn`: ConcPlanVerify's `CvnNet` + `CvnBuilder` + guard/update firing. `cvn::kinds` carries both the place/transition classification (`PlaceKind`, `ControlSub`, `ResourceType`, `TransitionKind`) and the CVN-specific `CvnArcKind`/`CvnTransition`/`CvnExtra`; `cvn::expr` is its value/expression/guard language. Both were previously the top-level `model` and `expr` modules. Tokens stay plain `usize` — the CVN's data lives in the state's variable store, not in colored tokens, which is what keeps its state space tractable. The store is flat (`BTreeMap<String, Val>`): variable *scoping* is the frontend's business, expressed in the names it generates. What UniPN does provide is `CvnArcKind::DropVars`, because a local left in the store after its scope ends keeps splitting states that are otherwise equal — that is a state-space concern, not a naming one.
 - `analysis`: the [`Semantics`](src/analysis/mod.rs) and [`NetLike`](src/analysis/mod.rs) firing contracts plus `explore` (BFS/DFS reachability) and `find_deadlocks` (caller-supplied deadlock predicate), and one submodule per frontend. `analysis::pt` is ConcBugDect's P/T reachability (`StateGraph`) and boundness (coverability tree); `analysis::cvn` is the CVN deadlock / dead-transition / conflict-set checks; `analysis::timed` is the PTPN state-class (DBM) reachability. The explorers report *blocked* states; they never decide what a deadlock is.
 
 Every count — weights, token counts, ids — is `usize`.
@@ -56,6 +56,17 @@ Everything that follows from the arc structure alone lives in `net::firing` as i
 - `accumulate` in `net/mod.rs` is the single definition of how parallel arcs of one direction combine; both `net::firing` and the `Incidence` snapshot use it.
 
 Add a shared rule here only when it follows from the structure. A rule that encodes one tool's *choice* (guards, clock zones, priorities, overflow reporting) belongs in that frontend's `semantics.rs`; do not push it down behind a hook.
+
+### Construction
+
+There is one place/transition *representation*: `Place<K>` and `Transition<K>`. Do not introduce a second, construction-time struct that repeats `name` plus the kind's fields — that was what `PtPlace`/`PtTransition` used to be, and it made the generic `Place<K>` pointless. Extra attributes go in the kind `K`; initial token counts go in the `Marking`.
+
+`NetBuilder<PK, TK, AK, E>` owns the one invariant construction has to maintain: the marking vector staying index-aligned with the places. `E` mirrors `State`'s `extra`, so a frontend accumulates whatever else its initial state needs. Both frontend builders are **type aliases**, not wrappers:
+
+- `PtBuilder = NetBuilder<PtPlaceKind, PtTransitionKind, ()>` adds only ConcBugDect's arc handling (`add_*_arc` accumulates onto a parallel arc, `set_*_weight` overwrites) and its DOT/diagnostic forwarding;
+- `CvnBuilder = NetBuilder<PlaceKind, CvnTransition, CvnArcKind, CvnExtra>` adds guard/update arcs and the variable declarations, which write straight into `extra`.
+
+Each alias defines its own `build()` over the generic `into_parts()`, so `(PtNet, Marking)` and `(CvnNet, CvnState)` stay the promised shapes. A new frontend should be an alias too.
 
 ## Scope Boundaries
 

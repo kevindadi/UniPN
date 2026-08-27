@@ -81,8 +81,12 @@ impl ReductionGraph {
                         break;
                     }
                     weights.push(weight_in);
-                    transition_types
-                        .push(self.transitions[transition_idx].kind.transition_type.clone());
+                    transition_types.push(
+                        self.transitions[transition_idx]
+                            .kind
+                            .transition_type
+                            .clone(),
+                    );
 
                     transition_chain.push(transition_idx);
                     current_place = next_place;

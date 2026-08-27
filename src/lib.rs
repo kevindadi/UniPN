@@ -16,8 +16,9 @@
 //! The source tree has three layers:
 //!
 //! - [`net`] — the generic core: the model itself plus [`net::ids`]
-//!   (identifiers), [`net::incidence`] (adjacency / incidence matrix), and
-//!   [`net::firing`] (the structural firing primitives all three nets share);
+//!   (identifiers), [`net::incidence`] (adjacency / incidence matrix),
+//!   [`net::firing`] (the structural firing primitives all three nets share),
+//!   and [`net::builder`] ([`NetBuilder`], which every frontend builder aliases);
 //! - [`pt`], [`timed`], [`cvn`] — one directory per frontend, each holding its
 //!   `kinds` (the payloads and net alias) and `semantics` (its firing), plus
 //!   whatever else that frontend needs (`builder`, `expr`, `interval`, `dot`);

@@ -26,13 +26,22 @@ The common structure (id, name, direction, weight) is fixed; the domain-specific
 
 The marking is kept separate from the net; anything a net needs beyond token counts (a CVN variable store, a timed clock zone, …) lives in its own `State` `extra` payload.
 
+There is exactly one place and one transition *representation*, `Place<K>` and `Transition<K>`, for all three nets — a place's extra attributes are the kind `K`, its token count is in the `Marking`, and no frontend defines a second struct of its own. Tokens are plain `usize` everywhere, including the CVN: its data lives in the variable store rather than in colored tokens.
+
+Construction follows the same rule. [`NetBuilder<PK, TK, AK, E>`](src/net/builder.rs) keeps the marking index-aligned with the places, and each frontend's builder is a *type alias* over it that adds only its own methods:
+
+```rust
+pub type PtBuilder = NetBuilder<PtPlaceKind, PtTransitionKind, ()>;
+pub type CvnBuilder = NetBuilder<PlaceKind, CvnTransition, CvnArcKind, CvnExtra>;
+```
+
 ## Source layout
 
 Three layers: the generic core, one directory per frontend, and the analyses.
 
 ```text
 src/
-  net/      mod.rs (the model) + ids.rs + incidence.rs + firing.rs
+  net/      mod.rs (the model) + ids.rs + incidence.rs + firing.rs + builder.rs
   pt/       kinds.rs + semantics.rs + builder.rs + dot.rs
   timed/    kinds.rs + semantics.rs + interval.rs
   cvn/      kinds.rs + semantics.rs + builder.rs + expr.rs + dot.rs

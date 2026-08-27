@@ -1,6 +1,6 @@
 use unipn::analysis::{AnalysisConfig, NetLike, SearchStrategy, explore, find_deadlocks};
 use unipn::cvn::expr::{BoolExpr, CmpOp, Expr, Val, VarUpdate};
-use unipn::cvn::kinds::{ControlSub, PlaceKind, ResourceType, TransitionKind};
+use unipn::cvn::kinds::{ControlSub, CvnTransition, PlaceKind, ResourceType, TransitionKind};
 use unipn::net::{ArcDir, Marking};
 use unipn::pt::{PlaceType, PtPlaceKind, PtTransitionKind, TransitionType};
 use unipn::{
@@ -82,7 +82,7 @@ fn pt_read_inhibitor_reset_arcs() {
 fn cvn_counter() -> (CvnNet, unipn::CvnState) {
     let mut b = CvnBuilder::new();
     let p = b.add_place("p", PlaceKind::Control(ControlSub::Statement));
-    let t = b.add_transition("inc", TransitionKind::Sequential);
+    let t = b.add_transition("inc", CvnTransition::new(TransitionKind::Sequential));
     let guard = BoolExpr::Cmp {
         op: CmpOp::Lt,
         lhs: Box::new(Expr::Ref("x".into())),
@@ -122,7 +122,7 @@ fn cvn_guard_and_update_drive_firing() {
 fn cvn_resource_capacity_blocks_second_lock() {
     let mut b = CvnBuilder::new();
     let lock = b.add_place("m", PlaceKind::Resource(ResourceType::Mutex));
-    let t = b.add_transition("lock", TransitionKind::Lock);
+    let t = b.add_transition("lock", CvnTransition::new(TransitionKind::Lock));
     b.add_input_arc(lock, t, 1, BoolExpr::True);
     b.set_initial_tokens(lock, 1);
     let (net, initial) = b.build();
@@ -132,6 +132,53 @@ fn cvn_resource_capacity_blocks_second_lock() {
     // Mutex capacity 1 → producing a second token is blocked, and the second
     // lock is not enabled (no token).
     assert!(net.enabled(&fired).is_empty());
+}
+
+#[test]
+fn dropping_a_dead_variable_merges_equivalent_states() {
+    // Two branches write different values to `x` and then converge. Once `x`
+    // is out of scope the two final states are the same behavior, but a store
+    // that still holds `x` keeps them apart.
+    let build = |scope_end: bool| {
+        let mut b = CvnBuilder::new();
+        let p0 = b.add_place("p0", PlaceKind::Control(ControlSub::Statement));
+        let p1 = b.add_place("p1", PlaceKind::Control(ControlSub::Statement));
+        let p2 = b.add_place("p2", PlaceKind::Control(ControlSub::FunctionEnd));
+        let ta = b.add_transition("a", CvnTransition::new(TransitionKind::BranchTrue));
+        let tb = b.add_transition("b", CvnTransition::new(TransitionKind::BranchFalse));
+        let end = b.add_transition("end", CvnTransition::new(TransitionKind::Return));
+
+        for (t, value) in [(ta, 1), (tb, 2)] {
+            let mut update = VarUpdate::new();
+            update.insert("x".into(), Expr::Lit(Val::int(value)));
+            b.add_input_arc(p0, t, 1, BoolExpr::True);
+            b.add_output_arc(t, p1, 1, Some(update));
+        }
+
+        b.add_input_arc(p1, end, 1, BoolExpr::True);
+        if scope_end {
+            b.add_scope_end_arc(end, p2, 1, ["x".to_string()]);
+        } else {
+            b.add_output_arc(end, p2, 1, None);
+        }
+
+        b.set_initial_tokens(p0, 1);
+        b.add_variable("x", Val::int(0));
+        b.build()
+    };
+
+    let (net, initial) = build(false);
+    let kept = explore(&net, initial, &AnalysisConfig::default());
+
+    let (net, initial) = build(true);
+    let dropped = explore(&net, initial, &AnalysisConfig::default());
+
+    // The dead `x` splits the two final states; dropping it merges them.
+    assert_eq!(kept.state_count(), 5);
+    assert_eq!(dropped.state_count(), 4);
+
+    let final_state = &dropped.states[*dropped.blocked.last().unwrap()];
+    assert!(!final_state.extra.vars.contains_key("x"));
 }
 
 // ── Timed net (discrete NetLike) ─────────────────────────────────────────
