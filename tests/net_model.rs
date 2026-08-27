@@ -445,6 +445,72 @@ fn transition_roles_give_both_frontends_one_vocabulary() {
     assert!(!pt_wait.is_acquire() && !pt_wait.is_release());
     assert!(CvnTransition::new(TransitionKind::CondvarWaitEnter).is_release());
     assert!(CvnTransition::new(TransitionKind::CondvarReacquire).is_acquire());
+
+    // Waiting for an *event* is a separate question from taking a resource, and
+    // both frontends draw the line in the same place: once the notification has
+    // arrived, the thread is merely queueing for the lock. A semaphore permit
+    // blocks too, but somebody is holding it, so that is the acquire side.
+    assert!(pt_wait.is_blocking_wait());
+    assert!(CvnTransition::new(TransitionKind::CondvarWakeByNotify).is_blocking_wait());
+    assert!(!CvnTransition::new(TransitionKind::CondvarReacquire).is_blocking_wait());
+    assert!(!CvnTransition::new(TransitionKind::Acquire).is_blocking_wait());
+}
+
+#[test]
+fn a_wait_point_is_derived_from_the_way_out_not_from_the_place_kind() {
+    // The condvar-wait shape, as the ConcIR lowering builds it: `waiting` can
+    // only be left by a wake, `reacquire` leads into the lock. Both are plain
+    // `BasicBlock`s — which of them a stranded token means trouble on is read
+    // off the transitions, not off the place.
+    let mut b = CvnBuilder::new();
+    let waiting = b.add_place("s:waiting", PlaceKind::Control(ControlSub::BasicBlock));
+    let holding = b.add_place("s:reacquire", PlaceKind::Control(ControlSub::BasicBlock));
+    let next = b.add_place("s:next", PlaceKind::Control(ControlSub::BasicBlock));
+    let signals = b.add_place("cv.signals", PlaceKind::Resource(ResourceType::Condvar));
+    let lock = b.add_place("m", PlaceKind::Resource(ResourceType::Mutex));
+
+    let wake = b.add_transition(
+        "s#wake",
+        CvnTransition::new(TransitionKind::CondvarWakeByNotify),
+    );
+    b.add_arc(waiting, wake, ArcDir::Input, 1, CvnArcKind::Plain);
+    b.add_arc(signals, wake, ArcDir::Input, 1, CvnArcKind::Plain);
+    b.add_arc(holding, wake, ArcDir::Output, 1, CvnArcKind::Plain);
+
+    let reacquire = b.add_transition(
+        "s#reacquire",
+        CvnTransition::new(TransitionKind::CondvarReacquire),
+    );
+    b.add_arc(holding, reacquire, ArcDir::Input, 1, CvnArcKind::Plain);
+    b.add_arc(lock, reacquire, ArcDir::Input, 1, CvnArcKind::Plain);
+    b.add_arc(next, reacquire, ArcDir::Output, 1, CvnArcKind::Plain);
+    let (cvn, _) = b.build();
+
+    // A token here means a notification that never came.
+    assert!(cvn.is_wait_point(waiting));
+    // A token here means contention for the lock, which is a different bug.
+    assert!(!cvn.is_wait_point(holding));
+    // The signal count is only left by the wake as well, but a resource resting
+    // on its own place is not waiting for anything.
+    assert!(!cvn.is_wait_point(signals));
+    // And a place nothing consumes from is an ending, not a wait.
+    assert!(!cvn.is_wait_point(next));
+
+    // P/T parks the same thread in front of its single `Wait` transition, so the
+    // question has to be asked of the way *out* to work for both frontends.
+    let mut pt = PtNet::new();
+    let before = pt.add_place("bb0", PtPlaceKind::new(PlaceType::BasicBlock));
+    let after = pt.add_place("bb1", PtPlaceKind::new(PlaceType::BasicBlock));
+    let w = pt.add_transition("wait", PtTransitionKind::new(TransitionType::Wait));
+    pt.add_arc(before, w, ArcDir::Input, 1, ());
+    pt.add_arc(after, w, ArcDir::Output, 1, ());
+    assert!(pt.is_wait_point(before) && !pt.is_wait_point(after));
+
+    // One ordinary way out is enough to say the token is not waiting on an
+    // event: it could have gone the other way.
+    let escape = pt.add_transition("goto", PtTransitionKind::new(TransitionType::Goto));
+    pt.add_arc(before, escape, ArcDir::Input, 1, ());
+    assert!(!pt.is_wait_point(before));
 }
 
 #[test]

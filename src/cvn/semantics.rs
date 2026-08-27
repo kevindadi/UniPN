@@ -10,7 +10,7 @@ use crate::analysis::Semantics;
 use crate::net::{ArcDir, PlaceCapacity, PlaceId, TransitionId};
 
 use super::expr::{ConcreteVal, Val, eval_expr, eval_guard};
-use super::kinds::{ControlSub, CvnArcKind, CvnNet, CvnState, PlaceKind, ResourceType};
+use super::kinds::{CvnArcKind, CvnNet, CvnState, PlaceKind, ResourceType};
 
 /// Resource places carry the capacity (Mutex=1, RwLock=max_readers,
 /// Semaphore=count, Channel=slot count); control places and condvars are
@@ -34,8 +34,9 @@ impl PlaceCapacity for PlaceKind {
 impl CvnNet {
     /// Whether `place` is a control-flow place.
     ///
-    /// `is_resource` and `is_terminal` are the generic
-    /// [`PlaceRole`](crate::net::PlaceRole) methods on
+    /// `is_resource`, `is_terminal` and `is_wait_point` are the generic
+    /// [`PlaceRole`](crate::net::PlaceRole) /
+    /// [`TransitionRole`](crate::net::TransitionRole) methods on
     /// [`Net`](crate::net::Net); this one stays here because the CVN's two-class
     /// [`PlaceKind`] makes it meaningful, and it is *not* `!is_resource` — an
     /// unknown place id is neither.
@@ -43,14 +44,6 @@ impl CvnNet {
         matches!(
             self.place(place).map(|p| &p.kind),
             Some(PlaceKind::Control(_))
-        )
-    }
-
-    /// Whether `place` is a condvar wait point (signal-loss classification).
-    pub fn is_wait_point(&self, place: PlaceId) -> bool {
-        matches!(
-            self.place(place).map(|p| &p.kind),
-            Some(PlaceKind::Control(ControlSub::WaitPoint))
         )
     }
 

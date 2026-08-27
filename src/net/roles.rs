@@ -60,6 +60,25 @@ pub trait TransitionRole {
 
     /// A memory access through a raw pointer.
     fn is_unsafe_access(&self) -> bool;
+
+    /// Carries a token onward only once another thread *produces an event*: a
+    /// condvar notification, a channel message, another thread finishing.
+    ///
+    /// This is the counterpart of [`is_acquire`](TransitionRole::is_acquire),
+    /// not a superset of it, and the line between them is what makes two
+    /// diagnoses distinguishable. A thread stuck before an acquire waits for a
+    /// resource somebody still *holds*, which is a lock-order problem; a thread
+    /// stuck before a blocking wait waits for an event that may already have
+    /// been lost, or that nobody will ever send. Taking a semaphore permit is
+    /// the former even though the operation blocks, so it answers `false` here.
+    ///
+    /// A channel receive honestly answers `true` to both: it takes a token off a
+    /// resource place, which is the mechanism `is_acquire` asks about, and it
+    /// waits for a message, which is what this asks about.
+    ///
+    /// Note this is a narrower question than ConcIR's own `Op::is_blocking`,
+    /// which asks whether an operation *can* block at all.
+    fn is_blocking_wait(&self) -> bool;
 }
 
 impl<PK, TK, AK> Net<PK, TK, AK> {
@@ -117,5 +136,45 @@ impl<PK: PlaceRole, TK, AK> Net<PK, TK, AK> {
         marking
             .iter_nonzero()
             .any(|(place, _)| !self.is_resource(place) && !self.is_terminal(place))
+    }
+}
+
+impl<PK: PlaceRole, TK: TransitionRole, AK> Net<PK, TK, AK> {
+    /// Whether a token on `place` is parked on an *event*: every transition that
+    /// could carry it away needs another thread to produce something first.
+    ///
+    /// This is what turns one blocked place in a counterexample into a specific
+    /// diagnosis. A lost notification and a lock-order deadlock are both "a
+    /// token that cannot move", but they are different bugs with different
+    /// repairs, and the difference is legible here.
+    ///
+    /// Derived rather than annotated, because both frontends already keep *what
+    /// operation this is* on the transition — a place kind saying "wait point"
+    /// would be that same fact copied onto the place, free to drift out of step
+    /// with the arcs around it. The cost is that a wait construct assembled in
+    /// some unforeseen shape reads as an ordinary blocked place: the diagnosis
+    /// degrades, it does not turn wrong.
+    ///
+    /// A resource place is never a wait point (an unlocked mutex resting on its
+    /// own place is not waiting for anything), and neither is a place nothing
+    /// consumes from — that is a [sink](Net::is_sink), an ending.
+    pub fn is_wait_point(&self, place: PlaceId) -> bool {
+        if self.place(place).is_none_or(|p| p.kind.is_resource()) {
+            return false;
+        }
+        let mut has_exit = false;
+        for arc in &self.arcs {
+            if arc.place != place || !matches!(arc.direction, ArcDir::Input | ArcDir::Reset) {
+                continue;
+            }
+            has_exit = true;
+            if !self
+                .transition(arc.transition)
+                .is_some_and(|t| t.kind.is_blocking_wait())
+            {
+                return false;
+            }
+        }
+        has_exit
     }
 }

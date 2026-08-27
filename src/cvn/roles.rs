@@ -76,4 +76,21 @@ impl TransitionRole for CvnTransition {
             TransitionKind::UnsafeRead | TransitionKind::UnsafeWrite | TransitionKind::UnsafeAccess
         )
     }
+
+    /// The two wake variants are what a parked waiter is waiting for; `Recv`
+    /// waits for a message and `Join` for another thread to finish.
+    ///
+    /// `CondvarReacquire` is deliberately absent: by then the notification has
+    /// arrived and the thread is queueing for the lock, which is the acquire
+    /// side. That is exactly the split that lets the CVN say "the notification
+    /// was lost" instead of "something is stuck".
+    fn is_blocking_wait(&self) -> bool {
+        matches!(
+            self.kind,
+            TransitionKind::CondvarWakeByNotify
+                | TransitionKind::CondvarWakeByNotifyAll
+                | TransitionKind::Recv
+                | TransitionKind::Join
+        )
+    }
 }

@@ -62,6 +62,33 @@ fn producer_consumer_lowers_without_losing_precision() {
 }
 
 #[test]
+fn the_lowered_condvar_wait_is_recognized_as_a_wait_point() {
+    let lowered = cvn_from_concir_json(&example("producer_consumer.json")).unwrap();
+    let ending_in = |suffix: &str| -> Vec<_> {
+        lowered
+            .net
+            .place_ids()
+            .filter(|&p| lowered.net.place(p).unwrap().name.ends_with(suffix))
+            .collect()
+    };
+
+    // The lowering marks neither place: both are plain `BasicBlock`s, and the
+    // classification comes from the transitions that can carry the token away.
+    // If a future lowering reshapes the wait, this is what notices.
+    let waiting = ending_in(":waiting");
+    let reacquire = ending_in(":reacquire");
+    assert_eq!(waiting.len(), 1, "the example has one condvar_wait");
+    assert_eq!(reacquire.len(), waiting.len());
+
+    for p in waiting {
+        assert!(lowered.net.is_wait_point(p));
+    }
+    for p in reacquire {
+        assert!(!lowered.net.is_wait_point(p));
+    }
+}
+
+#[test]
 fn producer_consumer_has_no_deadlock_and_no_dead_step() {
     let lowered = cvn_from_concir_json(&example("producer_consumer.json")).unwrap();
     let graph = explore(

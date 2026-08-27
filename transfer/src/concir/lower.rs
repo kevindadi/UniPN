@@ -506,6 +506,12 @@ impl<'a> Lowering<'a> {
     /// a thread that has released the lock but not yet been notified is in a
     /// different situation from one that has been notified but cannot get the
     /// lock back.
+    ///
+    /// Both intermediate places are plain `BasicBlock`s; which of the two a
+    /// stuck token means trouble on is read off the transitions leading out of
+    /// it, via `Net::is_wait_point` — `:waiting` can only be left by `#wake`, so
+    /// a token there is a lost notification, while `:reacquire` leads into an
+    /// acquire, so a token there is contending for the lock.
     fn lower_condvar_wait(
         &mut self,
         at: &At,
@@ -519,7 +525,7 @@ impl<'a> Lowering<'a> {
 
         let waiting = self.builder.add_place(
             format!("{}:waiting", at.label()),
-            PlaceKind::Control(ControlSub::WaitPoint),
+            PlaceKind::Control(ControlSub::BasicBlock),
         );
         let holding = self.builder.add_place(
             format!("{}:reacquire", at.label()),

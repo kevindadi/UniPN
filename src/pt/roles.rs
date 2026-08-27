@@ -63,4 +63,15 @@ impl TransitionRole for PtTransitionKind {
                 | TransitionType::UnsafeAccess(_)
         )
     }
+
+    /// `Wait` is a single transition that drops the lock, waits, and takes it
+    /// back, so the place *before* it is where a thread parks for a
+    /// notification — which is what [`Net::is_wait_point`](crate::net::Net::is_wait_point)
+    /// asks about, and why the question is consumer-side.
+    fn is_blocking_wait(&self) -> bool {
+        matches!(
+            self.transition_type,
+            TransitionType::Wait | TransitionType::Join(_)
+        )
+    }
 }

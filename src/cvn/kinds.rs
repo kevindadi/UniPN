@@ -34,9 +34,20 @@ pub enum PlaceKind {
 /// same function can be both called and spawned. Being a thread's terminal is
 /// therefore a property of the call site, which a place kind cannot express.
 ///
+/// There is no `CallWait` or `WaitPoint`. Both named the *operation* a token is
+/// waiting on, and in both frontends that belongs to the transition:
+/// `TransitionType::Wait` / `Function` on the P/T side,
+/// [`CondvarWaitEnter`](TransitionKind::CondvarWaitEnter) / [`Call`](TransitionKind::Call)
+/// here, with source attribution in a *field* (`PtPlaceKind::span`,
+/// [`CvnTransition::anchors`]) rather than a variant. Whether a token is parked
+/// on an event that may never arrive is still asked — as
+/// [`Net::is_wait_point`](crate::net::Net::is_wait_point), derived from the
+/// transitions that can carry the token away.
+///
 /// Lowering still creates whatever intermediate places it needs — a condvar
-/// reacquire point, a spawn bridge — those are [`ControlSub::BasicBlock`] with
-/// a telling name rather than variants of their own.
+/// wait or reacquire point, a spawn bridge, a call's return point — those are
+/// [`ControlSub::BasicBlock`] with a telling name rather than variants of their
+/// own.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ControlSub {
     /// A point in the control flow: one ConcIR statement, or one MIR basic
@@ -46,12 +57,6 @@ pub enum ControlSub {
     /// Where a function's control comes to rest, and so also where a spawned
     /// function's thread ends.
     FunctionEnd,
-    /// Waiting for a callee to return.
-    CallWait,
-    /// Waiting on a condvar. A token here waits for a notification that may
-    /// never arrive, which is a different diagnosis from being stuck on an
-    /// ordinary control point.
-    WaitPoint,
 }
 
 /// Resource type (determines the initial-token semantics and the capacity).
