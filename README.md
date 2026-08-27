@@ -135,6 +135,10 @@ The ConcIR schema and its examples come in as a submodule, so a change upstream 
 git submodule update --init
 ```
 
+`concir/ast.rs` re-declares ConcIR's structs instead of importing them, for three reasons that are all about coupling rather than convenience: ConcIR marks its structs `deny_unknown_fields` and a reader must not, or a field added upstream becomes a hard error; a `path` dependency on a submodule makes this crate unpublishable and forces the submodule on every consumer; and `concir::ast::Program` in the public API would pin the *caller's* ConcIR revision to ours, since two revisions in one binary are two incompatible types. `cvn_from_concir_json(&str)` shares no type at all.
+
+The cost of a mirror is drift, so `concir` stays on as a **dev-dependency** and [`transfer/tests/schema_sync.rs`](transfer/tests/schema_sync.rs) parses ConcIR's whole example corpus with both ASTs, comparing every field the lowering branches on.
+
 Currently lowered: `nop`, `assign_local`, `read_shared`, `write_shared`, `abstract_step`, `mutex_lock`, `mutex_unlock`, `condvar_wait`, `condvar_notify`, `condvar_notify_all`, `scope`, `branch`, `goto`, `return`. Next: `select`, `async_call` / `await`, `atomic_*`, `switch`, `semaphore_*`, `channel_*`, and cross-module `call`. PNML after that.
 
 ## Development

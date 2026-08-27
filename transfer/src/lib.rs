@@ -30,6 +30,24 @@
 //! [`TransferError::UnsupportedOp`], never a silent skip: dropping a `join` or a
 //! `channel_recv` would delete exactly the blocking behavior the analysis exists
 //! to find.
+//!
+//! # Why ConcIR's structs are mirrored rather than imported
+//!
+//! ConcIR's own `ast` module describes the same JSON, so the obvious move is to
+//! depend on it. Three things stand in the way, and none of them is the size of
+//! that crate (it is small):
+//!
+//! 1. ConcIR marks its structs `deny_unknown_fields` — correct for a validator,
+//!    wrong for a reader. A field added upstream would turn every conversion
+//!    into a hard error while this crate's submodule pin lags behind.
+//! 2. A `path` dependency on a git submodule makes this crate unpublishable and
+//!    forces the submodule on every consumer. Only the tests need it now.
+//! 3. Putting `concir::ast::Program` in the public API would pin the *caller's*
+//!    ConcIR revision to ours. Two revisions in one binary are two incompatible
+//!    `Program` types; JSON as the only interface makes that impossible.
+//!
+//! The cost of a mirror is drift, so `tests/schema_sync.rs` keeps `concir` as a
+//! **dev-dependency** and checks both ASTs against ConcIR's own example corpus.
 
 pub mod concir;
 

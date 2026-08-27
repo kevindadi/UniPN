@@ -1,16 +1,18 @@
 //! ConcIR's JSON shape, re-declared here and deliberately lenient.
 //!
 //! These structs mirror [ConcIR](https://github.com/kevindadi/ConcIR)'s own
-//! `ast.rs` closely enough to deserialize a program, and nothing more. Two
-//! differences are on purpose:
+//! `ast.rs` closely enough to deserialize a program, and nothing more. The crate
+//! docs give the three reasons this is a mirror rather than a dependency; the
+//! one that shapes this file is that ConcIR marks its structs
+//! `deny_unknown_fields` and we must not, so a field added upstream is ignored
+//! rather than fatal.
 //!
-//! - **No `deny_unknown_fields`.** ConcIR uses it; we must not. A field added
-//!   upstream should not turn every conversion into a hard error, because this
-//!   crate is meant to keep reading programs written for a newer ConcIR than it
-//!   was built against.
-//! - **No dependency on the ConcIR crate.** The wire format is the contract, not
-//!   its Rust types. Depending on the crate would drag its validator and its
-//!   error codes in, and pin the two repositories to one revision.
+//! Otherwise the mirror is faithful *to the wire format*, including where that
+//! disagrees with UniPN's own conventions: `count` and `capacity` are `i64`
+//! because ConcIR accepts a negative and diagnoses it itself, and the `version`
+//! and `form` defaults are ConcIR's rather than `Default::default()`.
+//! `transfer/tests/schema_sync.rs` parses ConcIR's example corpus with both
+//! ASTs and fails when they disagree.
 //!
 //! An op *kind* this file does not know is still a deserialization error: a new
 //! operation changes what a program means, so failing loudly is right. The

@@ -113,7 +113,15 @@ Three rules hold the design together, and none of them is negotiable:
 2. **Report every loss.** `LoweringReport` carries the degraded expressions, the `RwLock`s that took `LoweringConfig::default_max_readers`, and the unmodeled declarations. An invisible over-approximation is worse than none: "no deadlock" over a net whose guards all degraded proves nothing.
 3. **Never skip an operation.** A recognized-but-unlowered op is `TransferError::UnsupportedOp`, naming the sid and the kind. Dropping a `join` or a `channel_recv` deletes exactly the blocking behavior the analysis exists to find. An op *kind* the AST has never seen is a serde error instead, because a new operation changes what the program means.
 
-The ConcIR AST is re-declared in `concir/ast.rs` rather than imported: the wire format is the contract, not ConcIR's Rust types, and depending on the crate would drag its validator in and pin the two repositories together. It deliberately does **not** use `deny_unknown_fields` (ConcIR itself does) so an added field upstream is not a hard error.
+The ConcIR AST is re-declared in `concir/ast.rs` rather than imported. The `concir` crate is small (five modules, three deps), so size is not the reason — these three are:
+
+1. **ConcIR marks its structs `deny_unknown_fields`; we must not.** Every struct except `Stmt` has it, including the flattened `Op`. A field added upstream — a source line on a statement, say — would turn every conversion into a hard error while our submodule pin lags behind. Being strict is right for a validator and wrong for a reader.
+2. **A `path` dependency on a submodule makes this crate unpublishable** and forces the submodule on everyone who uses it. Today only the *tests* need `third_party/ConcIR`; `cargo build -p unipn-transfer` does not.
+3. **`concir::ast::Program` in the public API would pin the caller's ConcIR revision to ours.** ConcPlanVerify already depends on `concir`; two revisions in one binary are two incompatible `Program` types. `cvn_from_concir_json(&str)` shares no type at all, which is the point.
+
+The cost is drift, and `transfer/tests/schema_sync.rs` is the alarm: `concir` is a **dev-dependency**, both ASTs parse ConcIR's example corpus, and every field the lowering branches on has to agree. It already earned its keep by catching `count`/`capacity` being `i64` upstream and `usize` here. Do not promote that dev-dependency to a real one.
+
+Mirror the wire types, not UniPN's: `count` and `capacity` are `Option<i64>` because ConcIR accepts a negative and diagnoses it in its own validator (E001). `Resource::permits` / `Resource::slots` do the conversion, reading a negative as zero — fewer permits means more waiting, so the net can only report a stall that is not there, never miss one.
 
 Names carry the scoping, since the store is one flat map: a shared variable is `module::name`, a function slot is `module::function::name`, and parsed expressions are rewritten to match. A `return` drops that function's slots through `CvnArcKind::DropVars` — its first real user.
 
