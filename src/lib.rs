@@ -38,6 +38,10 @@
 //! questions and share the deadlock, conflict, and dead-transition definitions
 //! that follow from them. What they do *not* share is the state
 //! representation; see `CLAUDE.md` for why.
+//!
+//! Reading an external file *into* one of these nets is the sibling crate
+//! `unipn-transfer` (ConcIR JSON → [`cvn::CvnNet`] today, PNML later). It is
+//! separate so this crate depends on `serde` and nothing else.
 
 pub mod analysis;
 pub mod cvn;

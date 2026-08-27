@@ -8,7 +8,7 @@
 //!
 //! Today there is one converter: [`concir`], which lowers a
 //! [ConcIR](https://github.com/kevindadi/ConcIR) program to a
-//! [`CvnNet`](unipn::cvn::CvnNet). PNML is next.
+//! [`CvnNet`]. PNML is next.
 //!
 //! ```no_run
 //! let json = std::fs::read_to_string("program.json").unwrap();

@@ -10,6 +10,9 @@ repository = "https://github.com/kevindadi/UniPN"
 # resolving; the converters are members alongside it.
 [workspace]
 members = ["transfer"]
+# The ConcIR submodule is a reference, not a member: its schema and its examples
+# are what `unipn-transfer` reads and tests against, but nothing here builds it.
+exclude = ["third_party"]
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
