@@ -170,7 +170,7 @@ impl<'a> Lowering<'a> {
                 Sync::Condvar { waiters, signals }
             }
             "Semaphore" => {
-                let count = resource.count.unwrap_or(1);
+                let count = resource.permits(1);
                 let place = self.builder.add_marked_place(
                     &name,
                     PlaceKind::Resource(ResourceType::Semaphore { count }),
@@ -180,7 +180,7 @@ impl<'a> Lowering<'a> {
             }
             "Channel" => {
                 // The place holds messages, not permits, so it starts empty.
-                let capacity = resource.capacity.unwrap_or(0);
+                let capacity = resource.slots(0);
                 let place = self.builder.add_place(
                     &name,
                     PlaceKind::Resource(ResourceType::Channel { capacity }),

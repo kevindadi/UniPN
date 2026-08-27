@@ -10,3 +10,11 @@ repository = "https://github.com/kevindadi/UniPN"
 unipn = { path = ".." }
 serde.workspace = true
 serde_json.workspace = true
+
+# Test-only, and deliberately never a real dependency. `concir/ast.rs` here is a
+# hand-written mirror of ConcIR's own structs, so something has to notice when
+# the two drift apart; `tests/schema_sync.rs` parses ConcIR's example corpus
+# with both and compares. Promoting this to `[dependencies]` would undo the
+# three reasons the mirror exists — see the crate docs.
+[dev-dependencies]
+concir = { path = "../third_party/ConcIR" }

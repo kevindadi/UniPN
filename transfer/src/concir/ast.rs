@@ -22,11 +22,19 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
+fn default_version() -> String {
+    "3.4.0".to_owned()
+}
+
+fn default_form() -> String {
+    "function".to_owned()
+}
+
 /// A complete ConcIR program: modules plus one entry FQN (`module::function`).
 #[derive(Clone, Debug, Deserialize)]
 pub struct Program {
     pub program: String,
-    #[serde(default)]
+    #[serde(default = "default_version")]
     pub version: String,
     #[serde(default)]
     pub modules: Vec<Module>,
@@ -57,15 +65,17 @@ pub struct Resource {
     pub res_type: String,
     #[serde(default)]
     pub mode: Option<String>,
+    /// Semaphore permits. Signed because the wire format is: ConcIR accepts a
+    /// negative here and rejects it in its own validator (E001).
     #[serde(default)]
-    pub count: Option<usize>,
+    pub count: Option<i64>,
     #[serde(default)]
     pub base: Option<BaseType>,
     #[serde(default)]
     pub init: Option<serde_json::Value>,
     /// Channel only: in-flight payload slots. `0` is a rendezvous.
     #[serde(default)]
-    pub capacity: Option<usize>,
+    pub capacity: Option<i64>,
 }
 
 impl Resource {
@@ -76,6 +86,24 @@ impl Resource {
     pub fn is_var(&self) -> bool {
         self.kind == "var"
     }
+
+    /// The semaphore permit count as a token count.
+    pub fn permits(&self, default: usize) -> usize {
+        clamp_count(self.count, default)
+    }
+
+    /// The channel's slot count as a token capacity.
+    pub fn slots(&self, default: usize) -> usize {
+        clamp_count(self.capacity, default)
+    }
+}
+
+/// A wire count as a token count. A negative value is invalid ConcIR, and
+/// reading it as zero is the blocking-safe direction: fewer permits means more
+/// waiting, so the net can only report a stall that is not there, never miss
+/// one. ConcIR's validator is where a negative gets a proper diagnosis.
+fn clamp_count(value: Option<i64>, default: usize) -> usize {
+    value.map_or(default, |n| usize::try_from(n).unwrap_or(0))
 }
 
 /// A value's type. `"Int"` and friends are primitives; the compound forms
@@ -141,9 +169,11 @@ pub struct LocalDecl {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Function {
     pub name: String,
+    /// Body / execution: `"normal"` or `"async"`. Required upstream; defaulted
+    /// here, because a missing field should not stop us reading the rest.
     #[serde(default)]
     pub kind: String,
-    #[serde(default)]
+    #[serde(default = "default_form")]
     pub form: String,
     #[serde(default)]
     pub params: Vec<ParamDecl>,
