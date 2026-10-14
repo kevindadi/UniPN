@@ -31,6 +31,7 @@ The common structure (id, name, direction, weight) is fixed; the domain-specific
 | --- | --- | --- | --- | --- |
 | ConcBugDect (MIR→PN) | `pt::PtNet` | `PtPlaceKind` | `PtTransitionKind` | `()` |
 | PTPN (priority timed) | `timed::TimedNet` | `TimedPlaceKind` | `TimedTransitionKind` | `()` |
+| dense-time TPN (Merlin–Farber) |   | `tpn::Tag<PL>` | `tpn::TpnTransition<TL>` | `()` |
 | ConcPlanVerify (CVN) | `cvn::CvnNet` | `cvn::PlaceKind` | `cvn::TransitionKind` | `cvn::CvnArcKind` |
 | any labels (generic) | `labeled::LabeledNet<PL, TL>` | `labeled::Tag<PL>` | `labeled::Tag<TL>` | `()` |
 
@@ -56,9 +57,11 @@ src/
             + labels.rs + places.rs + builder.rs
   pt/       kinds.rs + semantics.rs + roles.rs + builder.rs + dot.rs
   timed/    kinds.rs + semantics.rs + interval.rs + builder.rs
+  tpn/      kinds.rs (Interval, TpnTransition) + semantics.rs + builder.rs
   cvn/      kinds.rs + semantics.rs + roles.rs + builder.rs + expr.rs + dot.rs
   labeled/  kinds.rs (Tag, LabeledNet) + semantics.rs + builder.rs
-  analysis/ mod.rs (Semantics + NetLike + explore) + labels.rs + invariants.rs + pt/ + cvn/ + timed/
+  analysis/ mod.rs (Semantics + NetLike + explore) + labels.rs + invariants.rs
+            + pt/ + cvn/ + timed/ + tpn/ (dbm.rs, state_class.rs, reachability.rs)
 
 transfer/src/
   lib.rs            top-level API + LoweringConfig / LoweringReport / TransferError
@@ -149,16 +152,16 @@ for y in p_semiflows(&net, FarkasLimits::default())? {
 }
 ```
 
-Each frontend then has its own analysis submodule: `analysis::pt` (reachability graph, boundness, reduction), `analysis::cvn` (the generic checks wrapped in ConcIR anchors and disjunctive families), and `analysis::timed` (state classes).
+Each frontend then has its own analysis submodule: `analysis::pt` (reachability graph, boundness, reduction), `analysis::cvn` (the generic checks wrapped in ConcIR anchors and disjunctive families), `analysis::timed` (PTPN state classes), and `analysis::tpn` (the dense-time TPN state-class graph: a strict-bound DBM, Berthomieu–Menasche classes, single- and multi-server semantics with Intermediate/Atomic newly-enabled rules — see `CLAUDE.md` for how it relates to PTPN).
 
-Timed (DBM / state-class) analysis is optional:
+DBM / state-class analysis is optional:
 
 ```toml
 unipn = { version = "0.2", features = ["timed"] }          # default
 unipn = { version = "0.2", default-features = false }      # model + discrete NetLike only
 ```
 
-`TimedNet`'s `NetLike` state is `TimedState` (`State<TimedExtra>`): marking only. Clock zones stay in `analysis::timed::StateClass` and are not switched in via the feature — a zone is a set of clock valuations, not a field that discrete `fire` can update.
+`TimedNet`'s `NetLike` state is `TimedState` (`State<TimedExtra>`): marking only. Clock zones stay in `analysis::timed::StateClass` and are not switched in via the feature — a zone is a set of clock valuations, not a field that discrete `fire` can update. The `tpn` analysis compiles behind the same `timed` feature (it, too, is DBM/state-class reachability); the `tpn` *frontend* is always available, and exploring a `TpnNet` directly gives the untimed over-approximation.
 
 ## Conversion (`unipn-transfer`)
 
