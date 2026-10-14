@@ -17,6 +17,8 @@ The one model is [`net::Net`](src/net/mod.rs), a container of places/transitions
 - [`timed::TimedNet`](src/timed/kinds.rs) — priority timed net (PTPN);
 - [`cvn::CvnNet`](src/cvn/kinds.rs) — colored verification net with guards/updates (ConcPlanVerify).
 
+A fourth alias, [`labeled::LabeledNet<PL, TL>`](src/labeled/kinds.rs), is not a tool's frontend: it is a plain P/T net over caller-chosen labels, for analyzing a labeled net nobody wrote a frontend for.
+
 Each net differs only in its place/transition/arc *kind* and its own firing semantics; the structure, ids, weights, marking, and the structural firing rules are shared.
 
 ## Common Commands
@@ -50,7 +52,8 @@ Default feature: `timed` (DBM / state-class reachability in `analysis::timed`). 
 - `timed`: PTPN's `TimeInterval`/`TimedPlaceKind`/`TimedTransitionKind` + `TimedNet` alias and discrete firing over `TimedState` (`State<TimedExtra>`, marking only). `TimedExtra` is empty *on purpose* — it holds the `State<E>` shape open for a future timed-state field; a clock zone is not that field, since a zone is a set of valuations. Overflow is a **return value**: `fire_reporting_overflow` reports the non-saturating places it had to clamp, and `StateClassReachabilityGraph::build` accumulates them into `stats.overflowed_places`. Do not reintroduce a global (this used to be a `thread_local!` that callers had to reset by hand). The timed **analysis** (DBM/state-class reachability) lives in `analysis::timed` behind the `timed` feature — clock zones stay on `StateClass`, not on `NetLike::State`.
 - `cvn`: ConcPlanVerify's `CvnNet` + `CvnBuilder` + guard/update firing. `cvn::kinds` carries the transition classification (`TransitionKind`), the resource types (`ResourceType`), its `PlaceKind = PlaceClass<ResourceType>` alias, and the CVN-specific `CvnArcKind`/`CvnTransition`/`CvnExtra`; `cvn::expr` is its value/expression/guard language. Both were previously the top-level `model` and `expr` modules. Tokens stay plain `usize` — the CVN's data lives in the state's variable store, not in colored tokens, which is what keeps its state space tractable. The store is flat (`BTreeMap<String, Val>`): variable *scoping* is the frontend's business, expressed in the names it generates. What UniPN does provide is `CvnArcKind::DropVars`, because a local left in the store after its scope ends keeps splitting states that are otherwise equal — that is a state-space concern, not a naming one.
 - `transfer`: `unipn_transfer::concir` — `ast.rs` (the ConcIR wire format), `expr.rs` (its expression strings), `lower.rs` (the walk). See "The conversion layer" below.
-- `analysis`: the [`Semantics`](src/analysis/mod.rs) and [`NetLike`](src/analysis/mod.rs) firing contracts plus the checks that need no kind at all — `explore` (BFS/DFS reachability), `find_deadlocks` (caller-supplied deadlock predicate), `conflict_sets` (transitions sharing an input place), `unfired_transitions` (never fired on any edge) — and one submodule per frontend. `analysis::pt` is ConcBugDect's P/T reachability (`StateGraph`) and boundness (coverability tree); `analysis::cvn` wraps the generic checks in the CVN's ConcIR anchors and disjunctive families; `analysis::timed` is the PTPN state-class (DBM) reachability. The explorers report *blocked* states; a blocked state becomes a deadlock only through the `PlaceRole` predicate or a caller's own.
+- `labeled`: the generic labeled net — `Tag<L>` (a kind that is only a label, `#[serde(transparent)]`), `LabeledNet<PL, TL> = Net<Tag<PL>, Tag<TL>, ()>` with plain P/T firing over a bare `Marking`, and `LabeledBuilder`. For a caller who has labels (an enum, strings) but no frontend. See "The labels layer" below.
+- `analysis`: the [`Semantics`](src/analysis/mod.rs) and [`NetLike`](src/analysis/mod.rs) firing contracts plus the checks that need no kind at all — `explore` (BFS/DFS reachability), `find_deadlocks` (caller-supplied deadlock predicate), `conflict_sets` (transitions sharing an input place), `unfired_transitions` (never fired on any edge) — then `analysis::labels` (the label-level checks, below), and one submodule per frontend. `analysis::pt` is ConcBugDect's P/T reachability (`StateGraph`) and boundness (coverability tree); `analysis::cvn` wraps the generic checks in the CVN's ConcIR anchors and disjunctive families; `analysis::timed` is the PTPN state-class (DBM) reachability. The explorers report *blocked* states; a blocked state becomes a deadlock only through the `PlaceRole` predicate or a caller's own.
 
 Every count — weights, token counts, ids — is `usize`.
 
@@ -97,6 +100,24 @@ The explorer's inner loop calls `NetLike::successor` rather than `fire`: it alre
 
 `TimedPlaceKind` and `TimedTransitionKind` implement neither: PTPN's places carry no control/resource split and it classifies schedulability, not deadlocks. A bound is only paid where it is used — do not add a vacuous impl to make a signature uniform.
 
+### The labels layer
+
+In this project a **labeled net** is a net whose places and/or transitions carry a *classification*: P/T places are `Control(..)` or `Resource`, P/T transitions a `TransitionType`, CVN transitions a `TransitionKind`. Labels are usually an enum or a string, and must be allowed to be more (several tags per node, structured labels). This is *not* the formal-languages sense (an action alphabet with τ for an LTS); do not read it that way.
+
+The model always had labels — they are what the kind payloads hold. What `net::labels` and `analysis::labels` add is a way to *ask* for them without knowing the frontend's types:
+
+- **The mechanism is a labeling function.** Every label-level analysis takes `impl Fn(&Place<PK>) -> I` / `impl Fn(&Transition<TK>) -> I` with `I: IntoIterator<Item = L>`: `Some(l)` is one label, `None` is unlabeled, a `Vec`/set is several. The function gets the whole node (id and name too), so a label can come from the kind, a field, a variant, or a tag parsed out of a name. The caller picks the granularity.
+- **`Labeled` is the default labeling.** A kind with an obvious classification returns a *reference* to it (`type Label; fn label(&self) -> &Self::Label`), and `net::canonical` turns that into a labeling function: `partition_places(&net, canonical)`. Implemented for `String`, `PlaceClass<R>` (so the CVN's `PlaceKind` too), `PtPlaceKind` (its `place_type`), `PtTransitionKind` (its `TransitionType`), `CvnTransition` (its `TransitionKind`), `Tag<L>`, and forwarded by `Place<K>` / `Transition<K>`. The timed kinds have no classification and do not implement it.
+- **Labels need `Clone + Eq + Hash`, not `Ord`.** `TransitionKind`, `ResourceType`, and `std::mem::discriminant` are not ordered, and the coarsening closure people actually write is `discriminant`. Results stay deterministic: groups in order of first appearance by node id, members in id order.
+
+Why these choices, so they are not undone:
+
+- The canonical label is the classification the kind *already stores*, returned by reference. Anything computed (coarser, combined, several tags) is a closure. That is what stops a frontend from growing a fieldless "tag" enum next to its real one — the same classification written twice, free to drift. The canonical P/T transition label is therefore `Lock(3)`, alias included; dropping it is `|t| Some(discriminant(&t.kind.transition_type))`, while a label that had already dropped it could not be refined back.
+- `PlaceRole` / `TransitionRole` stay. They are one fixed, concurrency-specific *interpretation* of labels ("is this a resource", "is this an acquire"), shared by P/T and the CVN, and the deadlock definition rests on them. The labels layer is the open-ended interpretation a caller chooses. `tests/labels.rs` checks that the label query "a token on a non-`FunctionEnd` control place, in a blocked state" finds exactly `Net::is_deadlock`'s deadlocks.
+- `LabeledNet` wraps its labels in `Tag` because `Semantics` cannot be implemented for every `Net<PL, TL, ()>`: that would overlap `PtNet` and `TimedNet`. `Net<Tag<PL>, Tag<TL>, ()>` is a type neither can be. Its firing is plain P/T — labels classify, they do not move tokens — with no capacity (`PlaceCapacity` answers `None`, which is the semantics, not a stub) and a `usize` overflow *rejected* rather than saturated. A net whose labels change firing is a frontend.
+
+What lives in `analysis::labels`: `partition_places` / `partition_transitions`; `unfired_labels` (labels none of whose transitions fired — `cvn::find_dead_transitions` is now this, labeling each transition by its family or by itself); `PlaceLabeling` / `LabelCounts` (per-label token totals, `get` answers 0 for an absent label); and `states_where` (states whose label totals satisfy a predicate, for any state that is `AsRef<Marking>` — `Marking` and every `State<E>` are). Add a label-level analysis here only if it reads the net through labels alone.
+
 ### P/T and CVN are two precision tiers of one model
 
 Both lower a control-flow skeleton over shared resources; the CVN additionally keeps guards and variable updates, so `CvnArcKind::Plain` *is* a P/T arc and P/T is the CVN with the data projected away. ConcBugDect comes from Rust MIR (dropping numeric dataflow, keeping resource use) and can already emit ConcIR via `--viz-cir`; the CVN comes from LLM-generated ConcIR and is checked before code generation proceeds.
@@ -131,13 +152,14 @@ Adding a variant back means naming the analysis that would branch on it.
 
 There is one place/transition *representation*: `Place<K>` and `Transition<K>`. Do not introduce a second, construction-time struct that repeats `name` plus the kind's fields — that was what `PtPlace`/`PtTransition` used to be, and it made the generic `Place<K>` pointless. Extra attributes go in the kind `K`; initial token counts go in the `Marking`.
 
-`NetBuilder<PK, TK, AK, E>` owns the one invariant construction has to maintain: the marking vector staying index-aligned with the places. `E` mirrors `State`'s `extra`, so a frontend accumulates whatever else its initial state needs. Both frontend builders are **type aliases**, not wrappers:
+`NetBuilder<PK, TK, AK, E>` owns the one invariant construction has to maintain: the marking vector staying index-aligned with the places. `E` mirrors `State`'s `extra`, so a frontend accumulates whatever else its initial state needs. Every frontend builder is a **type alias**, not a wrapper:
 
 - `PtBuilder = NetBuilder<PtPlaceKind, PtTransitionKind, ()>` adds only ConcBugDect's arc handling (`add_*_arc` accumulates onto a parallel arc, `set_*_weight` overwrites) and its DOT/diagnostic forwarding;
 - `CvnBuilder = NetBuilder<PlaceKind, CvnTransition, CvnArcKind, CvnExtra>` adds guard/update arcs and the variable declarations, which write straight into `extra`;
-- `TimedBuilder = NetBuilder<TimedPlaceKind, TimedTransitionKind, (), TimedExtra>` adds nothing but its `build()` — timed arcs carry no payload, so the generic `add_arc` is the whole API.
+- `TimedBuilder = NetBuilder<TimedPlaceKind, TimedTransitionKind, (), TimedExtra>` adds nothing but its `build()` — timed arcs carry no payload, so the generic `add_arc` is the whole API;
+- `LabeledBuilder<PL, TL> = NetBuilder<Tag<PL>, Tag<TL>, ()>` adds weighted `add_input_arc` / `add_output_arc` (parallel arcs stay separate) and its `build()`.
 
-Each alias defines its own `build()` over the generic `into_parts()` / `into_net_and_state()`, so `(PtNet, Marking)`, `(CvnNet, CvnState)`, and `(TimedNet, TimedState)` stay the promised shapes. A new frontend should be an alias too.
+Each alias defines its own `build()` over the generic `into_parts()` / `into_net_and_state()`, so `(PtNet, Marking)`, `(CvnNet, CvnState)`, `(TimedNet, TimedState)`, and `(LabeledNet<PL, TL>, Marking)` stay the promised shapes. A new frontend should be an alias too.
 
 ### The conversion layer (`unipn-transfer`)
 

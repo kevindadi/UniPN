@@ -8,6 +8,9 @@
 //! - [`cvn::CvnNet`] — the colored verification net with guards/updates
 //!   (ConcPlanVerify).
 //!
+//! plus [`labeled::LabeledNet`], a plain P/T net over caller-chosen place and
+//! transition labels, for analyzing a labeled net without writing a frontend.
+//!
 //! Each net differs only in its place/transition/arc *kind* payloads and its
 //! own firing semantics; the structure, ids, weights, and marking are shared.
 //!
@@ -19,15 +22,19 @@
 //!   (identifiers), [`net::incidence`] (adjacency / incidence matrix),
 //!   [`net::firing`] (the structural firing primitives all three nets share),
 //!   [`net::roles`] ([`PlaceRole`] / [`TransitionRole`], the questions an
-//!   analysis asks a kind), [`net::places`] ([`PlaceClass`] / [`ControlSub`],
-//!   the place classification P/T and the CVN share), and [`net::builder`]
-//!   ([`NetBuilder`], which every frontend builder aliases);
-//! - [`pt`], [`timed`], [`cvn`] — one directory per frontend, each holding its
-//!   `kinds` (the payloads and net alias) and `semantics` (its firing), plus
-//!   whatever else that frontend needs (`builder`, `expr`, `interval`, `dot`);
-//! - [`analysis`] — the [`NetLike`] firing contract, the generic explorer, and
-//!   one analysis module per frontend: [`analysis::pt`], [`analysis::cvn`], and
-//!   `analysis::timed` (behind the `timed` feature).
+//!   analysis asks a kind), [`net::labels`] ([`Labeled`] / [`canonical`], the
+//!   generic way to ask a node for its classification), [`net::places`]
+//!   ([`PlaceClass`] / [`ControlSub`], the place classification P/T and the
+//!   CVN share), and [`net::builder`] ([`NetBuilder`], which every frontend
+//!   builder aliases);
+//! - [`pt`], [`timed`], [`cvn`], [`labeled`] — one directory per frontend, each
+//!   holding its `kinds` (the payloads and net alias) and `semantics` (its
+//!   firing), plus whatever else that frontend needs (`builder`, `expr`,
+//!   `interval`, `dot`);
+//! - [`analysis`] — the [`NetLike`] firing contract, the generic explorer, the
+//!   label-level checks in [`analysis::labels`], and one analysis module per
+//!   frontend: [`analysis::pt`], [`analysis::cvn`], and `analysis::timed`
+//!   (behind the `timed` feature).
 //!
 //! A frontend implements [`Semantics`] (`can_fire` + `fire_enabled`) and gets
 //! [`NetLike`] for free; the structural half of firing comes from
@@ -48,6 +55,7 @@
 
 pub mod analysis;
 pub mod cvn;
+pub mod labeled;
 pub mod net;
 pub mod pt;
 pub mod timed;
@@ -61,9 +69,11 @@ pub use cvn::{
     CvnArcKind, CvnBuilder, CvnExtra, CvnNet, CvnState, CvnTransition, PlaceKind, ResourceType,
     TransitionKind, VarStore,
 };
+pub use labeled::{LabeledBuilder, LabeledNet, Tag};
 pub use net::{
-    Arc, ArcDir, ControlSub, Incidence, IncidenceMatrix, Marking, Net, NetBuilder, Place,
+    Arc, ArcDir, ControlSub, Incidence, IncidenceMatrix, Labeled, Marking, Net, NetBuilder, Place,
     PlaceCapacity, PlaceClass, PlaceId, PlaceRole, State, Transition, TransitionId, TransitionRole,
+    canonical,
 };
 pub use pt::{
     AliasId, AtomicOrdering, PlaceType, PtBuilder, PtNet, PtPlaceKind, PtTransitionKind,

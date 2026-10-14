@@ -13,7 +13,7 @@ The workspace has two crates:
 
 ## The model
 
-One generic net, three instantiations:
+One generic net, three tool frontends plus a generic labeled one:
 
 ```rust
 // src/net/mod.rs — the generic model
@@ -32,6 +32,7 @@ The common structure (id, name, direction, weight) is fixed; the domain-specific
 | ConcBugDect (MIR→PN) | `pt::PtNet` | `PtPlaceKind` | `PtTransitionKind` | `()` |
 | PTPN (priority timed) | `timed::TimedNet` | `TimedPlaceKind` | `TimedTransitionKind` | `()` |
 | ConcPlanVerify (CVN) | `cvn::CvnNet` | `cvn::PlaceKind` | `cvn::TransitionKind` | `cvn::CvnArcKind` |
+| any labels (generic) | `labeled::LabeledNet<PL, TL>` | `labeled::Tag<PL>` | `labeled::Tag<TL>` | `()` |
 
 The marking is kept separate from the net; anything a net needs beyond token counts (a CVN variable store, a timed clock zone, …) lives in its own `State` `extra` payload.
 
@@ -51,11 +52,13 @@ Three layers: the generic core, one directory per frontend, and the analyses.
 
 ```text
 src/
-  net/      mod.rs (the model) + ids.rs + incidence.rs + firing.rs + roles.rs + builder.rs
+  net/      mod.rs (the model) + ids.rs + arc_index.rs + incidence.rs + firing.rs + roles.rs
+            + labels.rs + places.rs + builder.rs
   pt/       kinds.rs + semantics.rs + roles.rs + builder.rs + dot.rs
   timed/    kinds.rs + semantics.rs + interval.rs + builder.rs
   cvn/      kinds.rs + semantics.rs + roles.rs + builder.rs + expr.rs + dot.rs
-  analysis/ mod.rs (Semantics + NetLike + explore) + pt/ + cvn/ + timed/
+  labeled/  kinds.rs (Tag, LabeledNet) + semantics.rs + builder.rs
+  analysis/ mod.rs (Semantics + NetLike + explore) + labels.rs + pt/ + cvn/ + timed/
 
 transfer/src/
   lib.rs            top-level API + LoweringConfig / LoweringReport / TransferError
@@ -115,11 +118,28 @@ and `pt::PlaceType` is `PlaceClass<()>` while `cvn::PlaceKind` is `PlaceClass<Re
 
 This is a shared enum where `TransitionRole` is a set of predicates, and the difference is deliberate: transitions could not merge because the two frontends' variants disagree on shape, and the control variants carry no payload in either and mean the same thing in both. `PtPlaceKind` still deserializes the flat `"BasicBlock"` / `"Resources"` strings written before the merge; it now writes the nested shape.
 
+## Labels
+
+A *labeled net* here is one whose places and transitions are classified — P/T's `Control`/`Resource` places and `TransitionType`s, the CVN's `ResourceType`s and `TransitionKind`s. The kinds always held those labels; [`net::labels`](src/net/labels.rs) and [`analysis::labels`](src/analysis/labels.rs) make them askable without knowing the frontend.
+
+Analyses take a **labeling function** from a node to its labels (`Some(l)`, `None`, or several), so the caller picks the granularity; [`canonical`](src/net/labels.rs) is the labeling function for the label a kind already carries (`Labeled`). Labels need only `Clone + Eq + Hash`.
+
+```rust
+use unipn::analysis::labels::{partition_places, states_where, unfired_labels};
+use unipn::net::canonical;
+
+let groups = partition_places(&net, canonical);                    // [(label, [place, …]), …]
+let bad = states_where(&net, &graph, canonical, |c| c.get(&Role::Critical) >= 2);
+let dead = unfired_labels(&net, &graph, |t| Some(std::mem::discriminant(&t.kind.transition_type)));
+```
+
+For labels without a frontend there is [`LabeledNet<PL, TL>`](src/labeled/kinds.rs): a plain P/T net over `Tag<PL>` places and `Tag<TL>` transitions, built with `LabeledBuilder` and serialized with the bare labels. `PlaceRole`/`TransitionRole` remain: they are the fixed concurrency reading of labels that the deadlock definition rests on, where the labels layer is the open-ended one.
+
 ## Analysis
 
 Analysis is not part of the model. The [`analysis`](src/analysis/mod.rs) module provides the minimal firing contract [`NetLike`] plus the checks that depend on no kind at all: `explore` (BFS/DFS reachability), `find_deadlocks`, `conflict_sets` (transitions competing for an input place), and `unfired_transitions` (behavioral dead code). The explorer only reports *blocked* states; a deadlock verdict comes from `PlaceRole` or from the caller.
 
-Each frontend then has its own analysis submodule: `analysis::pt` (reachability graph, boundness, reduction), `analysis::cvn` (the generic checks wrapped in ConcIR anchors and disjunctive families), and `analysis::timed` (state classes).
+`analysis::labels` holds the label-level checks described above. Each frontend then has its own analysis submodule: `analysis::pt` (reachability graph, boundness, reduction), `analysis::cvn` (the generic checks wrapped in ConcIR anchors and disjunctive families), and `analysis::timed` (state classes).
 
 Timed (DBM / state-class) analysis is optional:
 

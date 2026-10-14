@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::net::{ControlSub, Net, PlaceClass};
+use crate::net::{ControlSub, Labeled, Net, PlaceClass};
 
 /// ConcBugDect's place classification: the shared [`PlaceClass`] with an empty
 /// resource arm.
@@ -163,6 +163,29 @@ pub struct PtTransitionKind {
 impl PtTransitionKind {
     pub fn new(transition_type: TransitionType) -> Self {
         Self { transition_type }
+    }
+}
+
+/// A P/T place is labeled by its classification; the span and the capacity are
+/// attributes, not labels.
+impl Labeled for PtPlaceKind {
+    type Label = PlaceType;
+
+    fn label(&self) -> &PlaceType {
+        &self.place_type
+    }
+}
+
+/// A P/T transition is labeled by its `TransitionType`, payload and all. That is
+/// finer than most questions want — `Lock(3)` and `Lock(4)` are different
+/// labels — and deliberately so: coarsening is a closure away
+/// (`|t| Some(std::mem::discriminant(&t.kind.transition_type))`), while a label
+/// that had already dropped the alias could not be refined back.
+impl Labeled for PtTransitionKind {
+    type Label = TransitionType;
+
+    fn label(&self) -> &TransitionType {
+        &self.transition_type
     }
 }
 

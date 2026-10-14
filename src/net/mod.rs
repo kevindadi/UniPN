@@ -19,7 +19,8 @@
 //! index the net maintains for itself, [`incidence`] the derived
 //! adjacency/incidence views, [`firing`]
 //! the structural firing primitives every frontend shares, [`roles`] the
-//! questions an analysis asks a kind about the role a node plays, [`places`] the
+//! questions an analysis asks a kind about the role a node plays, [`labels`]
+//! the generic way to ask a node for its classification, [`places`] the
 //! one place classification the two control-flow frontends share, and
 //! [`builder`] the net-plus-marking construction every frontend builds on. The
 //! frontend-specific kinds live in [`pt`](crate::pt), [`timed`](crate::timed),
@@ -30,6 +31,7 @@ pub mod builder;
 pub mod firing;
 pub mod ids;
 pub mod incidence;
+pub mod labels;
 pub mod places;
 pub mod roles;
 
@@ -41,6 +43,7 @@ pub use builder::NetBuilder;
 pub use firing::PlaceCapacity;
 pub use ids::{PlaceId, TransitionId};
 pub use incidence::{Incidence, IncidenceMatrix};
+pub use labels::{Labeled, canonical};
 pub use places::{ControlSub, PlaceClass};
 pub use roles::{PlaceRole, TransitionRole};
 
@@ -432,6 +435,20 @@ pub struct State<E = ()> {
 impl<E> State<E> {
     pub fn new(marking: Marking, extra: E) -> Self {
         Self { marking, extra }
+    }
+}
+
+/// Lets an analysis that only reads token counts accept any state shape —
+/// a bare [`Marking`] (P/T, labeled nets) or a [`State`] (CVN, timed).
+impl AsRef<Marking> for Marking {
+    fn as_ref(&self) -> &Marking {
+        self
+    }
+}
+
+impl<E> AsRef<Marking> for State<E> {
+    fn as_ref(&self) -> &Marking {
+        &self.marking
     }
 }
 

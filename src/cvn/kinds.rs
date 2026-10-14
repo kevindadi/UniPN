@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::net::{Net, PlaceClass, State};
+use crate::net::{Labeled, Net, PlaceClass, State};
 
 use super::expr::{BoolExpr, Val, VarUpdate};
 
@@ -130,6 +130,19 @@ impl CvnTransition {
             anchors: Vec::new(),
             family: None,
         }
+    }
+}
+
+/// A CVN transition is labeled by its `TransitionKind`. Scope, anchors, and
+/// family are attribution, not classification; group by them with a labeling
+/// function (that is how [`find_dead_transitions`] folds families).
+///
+/// [`find_dead_transitions`]: crate::analysis::cvn::find_dead_transitions
+impl Labeled for CvnTransition {
+    type Label = TransitionKind;
+
+    fn label(&self) -> &TransitionKind {
+        &self.kind
     }
 }
 

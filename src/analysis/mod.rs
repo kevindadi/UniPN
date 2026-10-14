@@ -12,12 +12,17 @@
 //! place and never appearing on an edge are properties of the structure and of
 //! the explored graph.
 //!
+//! [`labels`] holds the checks that read a net only through its labels —
+//! partitions, per-label token totals, label-level dead code, and reachability
+//! queries phrased over labels — for any net and any labeling.
+//!
 //! P/T analysis lives in [`pt`] and CVN analysis in [`cvn`]. Timed
 //! (DBM/state-class) analysis is `analysis::timed` when the `timed` feature is
 //! enabled.
 
 pub mod cvn;
 mod hash;
+pub mod labels;
 pub mod pt;
 #[cfg(feature = "timed")]
 pub mod timed;

@@ -776,3 +776,57 @@ fn arcs_at_lists_every_arc_on_a_place_in_insertion_order() {
     assert_eq!(net.arcs_at(PlaceId(1)).count(), 1);
     assert_eq!(net.arcs_at(PlaceId(7)).count(), 0);
 }
+
+// ── CVN dead transitions ─────────────────────────────────────────────────
+
+/// One live and one dead branch of family `f`, two dead members of family `g`,
+/// and two dead loners. A family is reported once, at its lowest-id member, and
+/// only when none of its members fired; a loner is reported on its own.
+#[test]
+fn cvn_dead_transitions_fold_whole_dead_families_only() {
+    use unipn::analysis::PropertyViolation;
+    use unipn::analysis::cvn::find_dead_transitions;
+
+    let mut b = CvnBuilder::new();
+    let start = b.add_marked_place("start", PlaceKind::Control(ControlSub::BasicBlock), 1);
+    let never = b.add_place("never", PlaceKind::Control(ControlSub::BasicBlock));
+    let end = b.add_place("end", PlaceKind::Control(ControlSub::FunctionEnd));
+
+    let transition = |b: &mut CvnBuilder, name: &str, from, family: Option<&str>| {
+        let t = b.add_transition(name, CvnTransition::new(TransitionKind::Sequential));
+        b.add_input_arc(from, t, 1, BoolExpr::True);
+        b.add_output_arc(t, end, 1, None);
+        b.set_anchor(t, format!("s:{name}"));
+        if let Some(f) = family {
+            b.set_family(t, f);
+        }
+        t
+    };
+    let _lone_a = transition(&mut b, "lone_a", never, None);
+    let _f_live = transition(&mut b, "f_live", start, Some("f"));
+    let g_first = transition(&mut b, "g_first", never, Some("g"));
+    let _f_dead = transition(&mut b, "f_dead", never, Some("f"));
+    let _g_second = transition(&mut b, "g_second", never, Some("g"));
+    let _lone_b = transition(&mut b, "lone_b", never, None);
+    let (net, initial) = b.build();
+
+    let graph = explore(&net, initial, &AnalysisConfig::default());
+    let reported: Vec<(TransitionId, Vec<String>)> = find_dead_transitions(&net, &graph)
+        .into_iter()
+        .map(|cx| match cx.kind {
+            PropertyViolation::DeadTransition {
+                transition,
+                anchors,
+            } => (transition, anchors),
+            other => panic!("unexpected {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        reported,
+        vec![
+            (TransitionId(0), vec!["s:lone_a".to_owned()]),
+            (g_first, vec!["s:g_first".to_owned()]),
+            (TransitionId(5), vec!["s:lone_b".to_owned()]),
+        ]
+    );
+}
