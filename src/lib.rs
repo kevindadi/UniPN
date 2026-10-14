@@ -6,7 +6,8 @@
 //! - [`pt::PtNet`] — the ordinary P/T net (ConcBugDect's MIR→PN lowering);
 //! - [`timed::TimedNet`] — the priority timed net (PTPN);
 //! - [`cvn::CvnNet`] — the colored verification net with guards/updates
-//!   (ConcPlanVerify).
+//!   (ConcPlanVerify);
+//! - [`tpn::TpnNet`] — the dense-time (Merlin–Farber) time Petri net.
 //!
 //! plus [`labeled::LabeledNet`], a plain P/T net over caller-chosen place and
 //! transition labels, for analyzing a labeled net without writing a frontend.
@@ -27,10 +28,10 @@
 //!   ([`PlaceClass`] / [`ControlSub`], the place classification P/T and the
 //!   CVN share), and [`net::builder`] ([`NetBuilder`], which every frontend
 //!   builder aliases);
-//! - [`pt`], [`timed`], [`cvn`], [`labeled`] — one directory per frontend, each
-//!   holding its `kinds` (the payloads and net alias) and `semantics` (its
-//!   firing), plus whatever else that frontend needs (`builder`, `expr`,
-//!   `interval`, `dot`);
+//! - [`pt`], [`timed`], [`cvn`], [`tpn`], [`labeled`] — one directory per
+//!   frontend, each holding its `kinds` (the payloads and net alias) and
+//!   `semantics` (its firing), plus whatever else that frontend needs
+//!   (`builder`, `expr`, `interval`, `dot`);
 //! - [`analysis`] — the [`NetLike`] firing contract, the generic explorer, the
 //!   label-level checks in [`analysis::labels`], and one analysis module per
 //!   frontend: [`analysis::pt`], [`analysis::cvn`], and `analysis::timed`
@@ -59,6 +60,7 @@ pub mod labeled;
 pub mod net;
 pub mod pt;
 pub mod timed;
+pub mod tpn;
 
 pub use analysis::{
     AnalysisConfig, Counterexample, FiringStep, NetLike, PropertyViolation, ReachabilityGraph,
@@ -83,3 +85,4 @@ pub use timed::{
     CONTROL_TRANSITION_CORE, INF, TimeInterval, TimedBuilder, TimedExtra, TimedNet, TimedPlaceKind,
     TimedState, TimedTransitionKind,
 };
+pub use tpn::{Interval, IntervalError, TpnBuilder, TpnNet, TpnTransition, UpperBound};
