@@ -7,7 +7,8 @@
 //! [`LabeledNet<PL, TL>`] is the net for a caller who has only the labels: an
 //! enum of their own, `String`s read from a file, `()` for none. It fires as a
 //! plain P/T net and works with every kind-agnostic analysis, including the
-//! label-level ones in [`analysis::labels`](crate::analysis::labels).
+//! label-level ones in [`analysis::labels`](crate::analysis::labels) and the
+//! structural ones in [`analysis::invariants`](crate::analysis::invariants).
 //!
 //! - [`kinds`] — the [`Tag`] wrapper and the [`LabeledNet`] alias;
 //! - [`semantics`] — plain P/T firing over a [`Marking`](crate::net::Marking);

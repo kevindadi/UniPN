@@ -58,7 +58,7 @@ src/
   timed/    kinds.rs + semantics.rs + interval.rs + builder.rs
   cvn/      kinds.rs + semantics.rs + roles.rs + builder.rs + expr.rs + dot.rs
   labeled/  kinds.rs (Tag, LabeledNet) + semantics.rs + builder.rs
-  analysis/ mod.rs (Semantics + NetLike + explore) + labels.rs + pt/ + cvn/ + timed/
+  analysis/ mod.rs (Semantics + NetLike + explore) + labels.rs + invariants.rs + pt/ + cvn/ + timed/
 
 transfer/src/
   lib.rs            top-level API + LoweringConfig / LoweringReport / TransferError
@@ -139,7 +139,17 @@ For labels without a frontend there is [`LabeledNet<PL, TL>`](src/labeled/kinds.
 
 Analysis is not part of the model. The [`analysis`](src/analysis/mod.rs) module provides the minimal firing contract [`NetLike`] plus the checks that depend on no kind at all: `explore` (BFS/DFS reachability), `find_deadlocks`, `conflict_sets` (transitions competing for an input place), and `unfired_transitions` (behavioral dead code). The explorer only reports *blocked* states; a deadlock verdict comes from `PlaceRole` or from the caller.
 
-`analysis::labels` holds the label-level checks described above. Each frontend then has its own analysis submodule: `analysis::pt` (reachability graph, boundness, reduction), `analysis::cvn` (the generic checks wrapped in ConcIR anchors and disjunctive families), and `analysis::timed` (state classes).
+`analysis::labels` holds the label-level checks described above, and [`analysis::invariants`](src/analysis/invariants.rs) the structural ones: the minimal-support P- and T-semiflows of any net's incidence matrix (Farkas / Fourier–Motzkin, checked `i128`, an explicit error instead of a truncated answer), optionally restricted to the places a predicate — say, a label — accepts. Whether a P-semiflow is actually an *invariant* depends on the semantics, and `p_invariant_status` says so: reset arcs on its support break it, clamping capacities break it unless the semiflow itself keeps the place under its bound, and read/inhibitor arcs and CVN guards never do.
+
+```rust
+use unipn::analysis::invariants::{FarkasLimits, p_semiflows, p_invariant_status, InvariantStatus};
+
+for y in p_semiflows(&net, FarkasLimits::default())? {
+    if p_invariant_status(&net, &y, &initial) == InvariantStatus::Holds { /* yᵀ·M = yᵀ·M₀ everywhere */ }
+}
+```
+
+Each frontend then has its own analysis submodule: `analysis::pt` (reachability graph, boundness, reduction), `analysis::cvn` (the generic checks wrapped in ConcIR anchors and disjunctive families), and `analysis::timed` (state classes).
 
 Timed (DBM / state-class) analysis is optional:
 

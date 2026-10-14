@@ -16,12 +16,17 @@
 //! partitions, per-label token totals, label-level dead code, and reachability
 //! queries phrased over labels — for any net and any labeling.
 //!
+//! [`invariants`] computes the minimal-support P- and T-semiflows of any net's
+//! incidence matrix (Farkas), and says which P-semiflows are invariants of a
+//! net's behavior given its reset arcs and capacities.
+//!
 //! P/T analysis lives in [`pt`] and CVN analysis in [`cvn`]. Timed
 //! (DBM/state-class) analysis is `analysis::timed` when the `timed` feature is
 //! enabled.
 
 pub mod cvn;
 mod hash;
+pub mod invariants;
 pub mod labels;
 pub mod pt;
 #[cfg(feature = "timed")]
