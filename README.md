@@ -61,6 +61,8 @@ transfer/src/
   lib.rs            top-level API + LoweringConfig / LoweringReport / TransferError
   concir/           ast.rs (the wire format) + expr.rs (the string parser) + lower.rs
 
+transfer/schema-sync/  its own workspace: the ConcIR drift check (needs the submodule)
+
 third_party/ConcIR  git submodule: the schema this converter reads, and its examples
 ```
 
@@ -149,7 +151,7 @@ git submodule update --init
 
 `concir/ast.rs` re-declares ConcIR's structs instead of importing them, for three reasons that are all about coupling rather than convenience: ConcIR marks its structs `deny_unknown_fields` and a reader must not, or a field added upstream becomes a hard error; a `path` dependency on a submodule makes this crate unpublishable and forces the submodule on every consumer; and `concir::ast::Program` in the public API would pin the *caller's* ConcIR revision to ours, since two revisions in one binary are two incompatible types. `cvn_from_concir_json(&str)` shares no type at all.
 
-The cost of a mirror is drift, so `concir` stays on as a **dev-dependency** and [`transfer/tests/schema_sync.rs`](transfer/tests/schema_sync.rs) parses ConcIR's whole example corpus with both ASTs, comparing every field the lowering branches on.
+The cost of a mirror is drift, so [`transfer/schema-sync/tests/schema_sync.rs`](transfer/schema-sync/tests/schema_sync.rs) parses ConcIR's whole example corpus with both ASTs, comparing every field the lowering branches on. That check is its own workspace, not a dev-dependency of `unipn-transfer`: Cargo resolves path dev-dependencies together with the whole workspace, so a `concir` dev-dependency made even `unipn` fail to build in a clone without the submodule.
 
 Currently lowered: `nop`, `assign_local`, `read_shared`, `write_shared`, `abstract_step`, `mutex_lock`, `mutex_unlock`, `condvar_wait`, `condvar_notify`, `condvar_notify_all`, `scope`, `branch`, `goto`, `return`. Next: `select`, `async_call` / `await`, `atomic_*`, `switch`, `semaphore_*`, `channel_*`, and cross-module `call`. PNML after that.
 
@@ -158,11 +160,14 @@ Currently lowered: `nop`, `assign_local`, `read_shared`, `write_shared`, `abstra
 ```bash
 cargo fmt --all
 cargo check --workspace --all-targets
-cargo test --workspace
+cargo test --workspace                 # unipn-transfer's tests need the submodule
 cargo test --no-default-features
 cargo clippy --workspace --all-targets -- -D warnings
 cargo doc --no-deps
+cargo test --manifest-path transfer/schema-sync/Cargo.toml   # needs the submodule
 ```
+
+Everything except the last command and `unipn-transfer`'s fixture tests works in a clone that has not run `git submodule update --init`.
 
 ## License
 

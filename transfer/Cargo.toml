@@ -11,10 +11,8 @@ unipn = { path = ".." }
 serde.workspace = true
 serde_json.workspace = true
 
-# Test-only, and deliberately never a real dependency. `concir/ast.rs` here is a
-# hand-written mirror of ConcIR's own structs, so something has to notice when
-# the two drift apart; `tests/schema_sync.rs` parses ConcIR's example corpus
-# with both and compares. Promoting this to `[dependencies]` would undo the
-# three reasons the mirror exists — see the crate docs.
 [dev-dependencies]
-concir = { path = "../third_party/ConcIR" }
+# No `concir` here. The drift check against ConcIR's own AST lives in
+# `schema-sync/`, a separate workspace: a path dev-dependency into the submodule
+# is resolved with the rest of the workspace and made `unipn` itself fail to
+# build in a clone without the submodule. See `schema-sync/Cargo.toml`.

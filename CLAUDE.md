@@ -9,7 +9,7 @@ UniPN is a Rust edition 2024 **workspace** of two crates:
 - `unipn` (repository root) — a **single generic Petri-net model** shared by three frontends, plus the analyses. Library-only: no CLI, no execution language, no project-specific verification algorithms. Depends on nothing but `serde`.
 - `unipn-transfer` (`transfer/`) — converters from an external format into one of those nets. Today: ConcIR JSON → CVN. It is a separate crate so `unipn` never carries `serde_json` or somebody else's schema, and it is in the same workspace so a kind change and the converter that depends on it compile together.
 
-`unipn` stays the *root* package (`[package]` plus `[workspace]` in the same `Cargo.toml`) so a downstream `path = "../UniPN"` keeps resolving. `third_party/ConcIR` is a git submodule: the schema the converter reads, and the example corpus its tests run against.
+`unipn` stays the *root* package (`[package]` plus `[workspace]` in the same `Cargo.toml`) so a downstream `path = "../UniPN"` keeps resolving. `third_party/ConcIR` is a git submodule: the schema the converter reads, and the example corpus its tests run against. `transfer/schema-sync` is a third, deliberately *non-member* crate (its own `[workspace]`, and listed in the root `exclude`): it is the only thing with a Cargo dependency on the submodule, and it lives outside the workspace so that an uninitialized submodule cannot stop the workspace from resolving.
 
 The one model is [`net::Net`](src/net/mod.rs), a container of places/transitions/arcs parameterized by their *kind* payloads. The three frontends instantiate it via type aliases:
 
@@ -34,11 +34,12 @@ cargo test -p unipn-transfer
 cargo clippy --workspace --all-targets -- -D warnings
 cargo doc --no-deps
 git submodule update --init
+cargo test --manifest-path transfer/schema-sync/Cargo.toml
 ```
 
 `--workspace` matters: a bare `cargo test` from the root only builds `unipn`, because the root package is also a workspace member.
 
-Default feature: `timed` (DBM / state-class reachability in `analysis::timed`). The timed *model* (`TimedNet`, discrete `NetLike` over `TimedState`) is always compiled. Integration tests live in `tests/`; `timed_analysis` requires the feature. Use `--test <file-stem>` to select a test binary and append a test-name filter for one test. `unipn-transfer`'s tests read fixtures out of the `third_party/ConcIR` submodule and fail with a message telling you to initialize it.
+Default feature: `timed` (DBM / state-class reachability in `analysis::timed`). The timed *model* (`TimedNet`, discrete `NetLike` over `TimedState`) is always compiled. Integration tests live in `tests/`; `timed_analysis` requires the feature. Use `--test <file-stem>` to select a test binary and append a test-name filter for one test. `unipn-transfer`'s tests read fixtures out of the `third_party/ConcIR` submodule and fail with a message telling you to initialize it; everything else — including `cargo check --workspace --all-targets` and `cargo test -p unipn` — must keep working without it. Do not add a `path` dependency (of any kind, dev included) on `third_party/` to a workspace member: Cargo resolves those for the whole workspace before building anything, which is exactly how a test-only `concir` dev-dependency once broke `cargo test -p unipn`.
 
 ## Architecture
 
@@ -139,7 +140,7 @@ The ConcIR AST is re-declared in `concir/ast.rs` rather than imported. The `conc
 2. **A `path` dependency on a submodule makes this crate unpublishable** and forces the submodule on everyone who uses it. Today only the *tests* need `third_party/ConcIR`; `cargo build -p unipn-transfer` does not.
 3. **`concir::ast::Program` in the public API would pin the caller's ConcIR revision to ours.** ConcPlanVerify already depends on `concir`; two revisions in one binary are two incompatible `Program` types. `cvn_from_concir_json(&str)` shares no type at all, which is the point.
 
-The cost is drift, and `transfer/tests/schema_sync.rs` is the alarm: `concir` is a **dev-dependency**, both ASTs parse ConcIR's example corpus, and every field the lowering branches on has to agree. It already earned its keep by catching `count`/`capacity` being `i64` upstream and `usize` here. Do not promote that dev-dependency to a real one.
+The cost is drift, and `transfer/schema-sync/tests/schema_sync.rs` is the alarm: both ASTs parse ConcIR's example corpus, and every field the lowering branches on has to agree. It already earned its keep by catching `count`/`capacity` being `i64` upstream and `usize` here. `concir` is a dependency of that out-of-workspace test crate only — never of `unipn-transfer`, not even as a dev-dependency (see Common Commands for why).
 
 Mirror the wire types, not UniPN's: `count` and `capacity` are `Option<i64>` because ConcIR accepts a negative and diagnoses it in its own validator (E001). `Resource::permits` / `Resource::slots` do the conversion, reading a negative as zero — fewer permits means more waiting, so the net can only report a stall that is not there, never miss one.
 

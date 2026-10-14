@@ -1,0 +1,27 @@
+[package]
+name = "unipn-transfer-schema-sync"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Drift alarm: ConcIR's own AST and unipn-transfer's mirror must read ConcIR's examples the same way"
+
+# Its own workspace root, deliberately outside the UniPN workspace. `concir` is
+# a path dependency into the `third_party/ConcIR` submodule, and Cargo resolves
+# every path dependency of every workspace member — dev-dependencies included —
+# before it builds anything. As a dev-dependency of `unipn-transfer` it made the
+# whole workspace, `unipn` included, fail to resolve in a clone that had not
+# initialized the submodule. Out here only this check needs the submodule:
+#
+#     cargo test --manifest-path transfer/schema-sync/Cargo.toml
+[workspace]
+
+[dependencies]
+
+[dev-dependencies]
+unipn-transfer = { path = ".." }
+# Test-only, and never a dependency of `unipn-transfer` itself: `concir/ast.rs`
+# there is a hand-written mirror of ConcIR's structs, and this crate exists to
+# notice when the two drift apart. See the `unipn-transfer` crate docs for why
+# the mirror exists at all.
+concir = { path = "../../third_party/ConcIR" }
+serde_json = "1"

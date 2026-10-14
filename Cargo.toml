@@ -12,7 +12,9 @@ repository = "https://github.com/kevindadi/UniPN"
 members = ["transfer"]
 # The ConcIR submodule is a reference, not a member: its schema and its examples
 # are what `unipn-transfer` reads and tests against, but nothing here builds it.
-exclude = ["third_party"]
+# `transfer/schema-sync` is the one crate that depends on it, and it is its own
+# workspace so that an uninitialized submodule cannot break this one.
+exclude = ["third_party", "transfer/schema-sync"]
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -46,8 +46,12 @@
 //!    ConcIR revision to ours. Two revisions in one binary are two incompatible
 //!    `Program` types; JSON as the only interface makes that impossible.
 //!
-//! The cost of a mirror is drift, so `tests/schema_sync.rs` keeps `concir` as a
-//! **dev-dependency** and checks both ASTs against ConcIR's own example corpus.
+//! The cost of a mirror is drift, so `schema-sync/tests/schema_sync.rs` checks
+//! both ASTs against ConcIR's own example corpus. That check is its own
+//! workspace (`cargo test --manifest-path transfer/schema-sync/Cargo.toml`):
+//! Cargo resolves a path dev-dependency together with the rest of the
+//! workspace, so keeping `concir` here made even `unipn` fail to build in a
+//! clone without the submodule.
 
 pub mod concir;
 

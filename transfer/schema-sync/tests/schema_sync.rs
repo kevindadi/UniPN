@@ -1,14 +1,16 @@
 //! The alarm for the one real cost of mirroring ConcIR's schema.
 //!
-//! [`concir::ast`] is a **dev-dependency only**. Three things would break if it
-//! became a real one:
+//! [`concir::ast`] is never a dependency of `unipn-transfer` — it is only used
+//! here, in a crate that sits outside the UniPN workspace so that its path into
+//! the submodule cannot keep that workspace from resolving. Three things would
+//! break if it became a real dependency:
 //!
 //! 1. ConcIR marks its structs `deny_unknown_fields`; we must not, or a field
 //!    added upstream turns every conversion into a hard error while our
 //!    submodule pin lags behind.
 //! 2. A `path` dependency on a submodule makes this crate unpublishable and
-//!    forces the submodule on everyone who uses it. Right now only these tests
-//!    need it.
+//!    forces the submodule on everyone who uses it. Right now only this test
+//!    crate needs it.
 //! 3. Putting `concir::ast::Program` in the public API would pin *the caller's*
 //!    ConcIR revision to ours. Two revisions in one binary are two incompatible
 //!    `Program` types. JSON is the interface precisely so that cannot happen.
@@ -23,6 +25,7 @@ use unipn_transfer::concir::ast as mine;
 
 fn examples() -> Vec<(String, String)> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
         .join("..")
         .join("third_party")
         .join("ConcIR")
