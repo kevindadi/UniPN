@@ -120,7 +120,7 @@ mod analysis {
     }
 
     /// SCG markings, or `None` if the state limit is hit.
-    fn scg_markings_limited(
+    pub(crate) fn scg_markings_limited(
         net: &TpnNet<(), ()>,
         initial: &Marking,
         semantics: TpnSemantics,
@@ -143,7 +143,7 @@ mod analysis {
     }
 
     /// Untimed markings, or `None` if the state limit is hit.
-    fn untimed_markings_limited(
+    pub(crate) fn untimed_markings_limited(
         net: &TpnNet<(), ()>,
         initial: &Marking,
         max_states: usize,
@@ -357,7 +357,7 @@ mod analysis {
     // ── 3. Oracle A: integer-time discretization ──────────────────────────
 
     /// The maximum finite constant in the net (0 if every interval is [0,∞)).
-    fn max_constant(net: &TpnNet<(), ()>) -> i64 {
+    pub(crate) fn max_constant(net: &TpnNet<(), ()>) -> i64 {
         net.transitions
             .iter()
             .map(|t| {
@@ -513,13 +513,13 @@ mod analysis {
     }
 
     /// A deterministic LCG (no `rand` dependency).
-    struct Lcg(u64);
+    pub(crate) struct Lcg(u64);
 
     impl Lcg {
-        fn new(seed: u64) -> Self {
+        pub(crate) fn new(seed: u64) -> Self {
             Lcg(seed)
         }
-        fn next(&mut self, bound: u64) -> u64 {
+        pub(crate) fn next(&mut self, bound: u64) -> u64 {
             self.0 = self
                 .0
                 .wrapping_mul(6364136223846793005)
@@ -530,7 +530,7 @@ mod analysis {
 
     /// A small random TPN with closed integer intervals (constants 0..=2) and,
     /// when `allow_infinity`, occasional `[a, ∞)` upper bounds.
-    fn random_tpn(seed: u64, allow_infinity: bool) -> (TpnNet<(), ()>, Marking) {
+    pub(crate) fn random_tpn(seed: u64, allow_infinity: bool) -> (TpnNet<(), ()>, Marking) {
         let mut rng = Lcg::new(seed);
         let places = 1 + rng.next(4) as usize;
         let transitions = 1 + rng.next(4) as usize;
@@ -888,5 +888,457 @@ mod analysis {
         )
         .unwrap();
         assert!(graph.truncated, "unbounded net must truncate");
+    }
+}
+
+#[cfg(feature = "timed")]
+mod multi_server {
+    use super::analysis::{
+        max_constant, random_tpn, scg_markings_limited, untimed_markings_limited,
+    };
+    use std::collections::{BTreeSet, HashSet, VecDeque};
+
+    use unipn::Tag;
+    use unipn::analysis::NetLike;
+    use unipn::analysis::tpn::{
+        DisablingPolicy, FiringPolicy, MultiServerConfig, NewlyEnabled, Servers, TpnSemantics,
+    };
+    use unipn::net::{Marking, TransitionId};
+    use unipn::tpn::{Interval, TpnBuilder, TpnNet, TpnTransition, UpperBound};
+
+    fn multiple(disabling: DisablingPolicy) -> TpnSemantics {
+        TpnSemantics {
+            newly_enabled: NewlyEnabled::Atomic,
+            servers: Servers::Multiple(MultiServerConfig {
+                firing: FiringPolicy::OldestFirst,
+                disabling,
+            }),
+        }
+    }
+
+    fn scg_markings_multi(
+        net: &TpnNet<(), ()>,
+        initial: &Marking,
+        semantics: TpnSemantics,
+        max_states: usize,
+    ) -> BTreeSet<Marking> {
+        scg_markings_limited(net, initial, semantics, max_states).unwrap()
+    }
+
+    // ── Integer-time oracle, multi-server ────────────────────────────────
+
+    #[derive(Clone, PartialEq, Eq, Hash)]
+    struct MultiIntState {
+        marking: Marking,
+        /// One clock per instance, sorted descending (oldest first).
+        clocks: Vec<Vec<i64>>,
+    }
+
+    fn degree(net: &TpnNet<(), ()>, marking: &Marking, t: TransitionId) -> usize {
+        if !net.structurally_enabled(marking, t) {
+            return 0;
+        }
+        let demand: Vec<_> = net
+            .arcs_of(t, unipn::ArcDir::Input)
+            .map(|a| {
+                let w = net
+                    .arcs_of(t, unipn::ArcDir::Input)
+                    .filter(|b| b.place == a.place)
+                    .map(|b| b.weight)
+                    .sum::<usize>();
+                (a.place, w)
+            })
+            .collect();
+        let mut seen = HashSet::new();
+        let mut deg = usize::MAX;
+        for (p, w) in demand {
+            if !seen.insert(p.index()) {
+                continue;
+            }
+            deg = deg.min(marking.tokens(p) / w);
+        }
+        if seen.is_empty() { 1 } else { deg }
+    }
+
+    fn multi_fire(
+        net: &TpnNet<(), ()>,
+        state: &MultiIntState,
+        t: TransitionId,
+        i_f: usize,
+        delta: i64,
+        semantics: TpnSemantics,
+        cap: i64,
+    ) -> MultiIntState {
+        let marking2 = NetLike::fire(net, &state.marking, t).unwrap();
+        let disabling = match semantics.servers {
+            Servers::Multiple(c) => c.disabling,
+            Servers::Single => DisablingPolicy::OldestFirst,
+        };
+        let memory = match semantics.newly_enabled {
+            NewlyEnabled::Intermediate => {
+                let mut m = state.marking.clone();
+                net.consume_inputs(&mut m, t);
+                m
+            }
+            NewlyEnabled::Atomic => state.marking.clone(),
+        };
+        let mut clocks2 = vec![Vec::new(); net.num_transitions()];
+        for u in net.transition_ids() {
+            let old = &state.clocks[u.index()];
+            let survivors: Vec<i64> = if u == t {
+                // The fired instance is removed; all others survive.
+                old.iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i_f)
+                    .map(|(_, c)| (c + delta).min(cap))
+                    .collect()
+            } else {
+                let count = match semantics.servers {
+                    Servers::Single => {
+                        if net.structurally_enabled(&marking2, u)
+                            && net.structurally_enabled(&memory, u)
+                        {
+                            1
+                        } else {
+                            0
+                        }
+                    }
+                    Servers::Multiple(_) => {
+                        let deg_mem = degree(net, &memory, u);
+                        let deg_new = degree(net, &marking2, u);
+                        match semantics.newly_enabled {
+                            NewlyEnabled::Intermediate => deg_mem.min(old.len()),
+                            NewlyEnabled::Atomic => old.len().min(deg_new),
+                        }
+                    }
+                };
+                let start = match disabling {
+                    DisablingPolicy::OldestFirst => old.len() - count,
+                    DisablingPolicy::NewestFirst => 0,
+                };
+                old[start..start + count]
+                    .iter()
+                    .map(|c| (c + delta).min(cap))
+                    .collect()
+            };
+            let fresh_count = degree(net, &marking2, u) - survivors.len();
+            let mut list = survivors;
+            list.extend(std::iter::repeat_n(0, fresh_count));
+            list.sort_by(|a, b| b.cmp(a));
+            clocks2[u.index()] = list;
+        }
+        MultiIntState {
+            marking: marking2,
+            clocks: clocks2,
+        }
+    }
+
+    /// The integer-time explicit-state oracle for multi-server nets. Fires the
+    /// oldest instance of each transition (matching the SCG), or every firable
+    /// instance under `FiringPolicy::Any`.
+    fn multi_integer_markings(
+        net: &TpnNet<(), ()>,
+        initial: &Marking,
+        semantics: TpnSemantics,
+        max_states: usize,
+    ) -> Option<BTreeSet<Marking>> {
+        let cap = max_constant(net) + 1;
+        let mut clocks0 = vec![Vec::new(); net.num_transitions()];
+        for t in net.transition_ids() {
+            for _ in 0..degree(net, initial, t) {
+                clocks0[t.index()].push(0);
+            }
+        }
+        let init = MultiIntState {
+            marking: initial.clone(),
+            clocks: clocks0,
+        };
+        let mut seen: HashSet<MultiIntState> = HashSet::new();
+        let mut queue: VecDeque<MultiIntState> = VecDeque::new();
+        seen.insert(init.clone());
+        queue.push_back(init);
+        let mut markings = BTreeSet::new();
+
+        while let Some(state) = queue.pop_front() {
+            markings.insert(state.marking.clone());
+            for t in net.transition_ids() {
+                let instances = state.clocks[t.index()].len();
+                let firable: Vec<usize> = match semantics.servers {
+                    Servers::Multiple(c) if c.firing == FiringPolicy::Any => {
+                        (0..instances).collect()
+                    }
+                    _ => {
+                        if instances > 0 {
+                            vec![0]
+                        } else {
+                            vec![]
+                        }
+                    }
+                };
+                for i_f in firable {
+                    let interval = net.transition(t).unwrap().kind.interval;
+                    let eft = interval.lower as i64;
+                    let clock = state.clocks[t.index()][i_f];
+                    let delta_min = (eft - clock).max(0);
+                    let mut delta_max: Option<i64> = None;
+                    for u in net.transition_ids() {
+                        if let UpperBound::Finite { value, .. } =
+                            net.transition(u).unwrap().kind.interval.upper
+                        {
+                            for &c in &state.clocks[u.index()] {
+                                let b = value as i64 - c;
+                                delta_max = Some(delta_max.map_or(b, |x| x.min(b)));
+                            }
+                        }
+                    }
+                    let delta_max = delta_max.unwrap_or(cap - clock);
+                    for delta in delta_min..=delta_max {
+                        let next = multi_fire(net, &state, t, i_f, delta, semantics, cap);
+                        if seen.insert(next.clone()) {
+                            if seen.len() >= max_states {
+                                return None;
+                            }
+                            queue.push_back(next);
+                        }
+                    }
+                }
+            }
+        }
+        Some(markings)
+    }
+
+    // ── Safe nets: multi-server equals single-server ─────────────────────
+
+    #[test]
+    fn safe_nets_multi_server_equals_single_server() {
+        // A safe net has at most one token per place, so every enabling degree
+        // is at most 1 and the multi-server semantics collapses to
+        // single-server.
+        for seed in 0..200u64 {
+            let (net, initial) = random_tpn(seed, false);
+            // Keep only weight-1 nets with a 0/1 initial marking; verify safety
+            // by exploring the untimed net.
+            let Some(untimed) = untimed_markings_limited(&net, &initial, 5_000) else {
+                continue;
+            };
+            if untimed.iter().any(|m| m.0.iter().any(|&c| c > 1)) {
+                continue; // not safe
+            }
+            let single = TpnSemantics::default();
+            let multi = multiple(DisablingPolicy::OldestFirst);
+            let m_single = scg_markings_multi(&net, &initial, single, 5_000);
+            let m_multi = scg_markings_multi(&net, &initial, multi, 5_000);
+            assert_eq!(m_single, m_multi, "seed {seed}");
+        }
+    }
+
+    // ── Hand-derived multi-instance examples ─────────────────────────────
+
+    #[test]
+    fn two_instances_fire_sequentially_or_simultaneously() {
+        // p has 2 tokens; t: p→q [1,2]. Hand derivation: both instances start
+        // with clock 0, so their firing times are in [1,2]. Fire one at
+        // τ1 ∈ [1,2] ({p=1,q=1}); the survivor's clock is τ1, so its remaining
+        // firing time is [max(0,1−τ1), 2−τ1] — [0,0] when τ1=2 (the two
+        // instances fire at the same instant 2), and a positive interval
+        // otherwise (they fire one after the other). Both ways, {q=2} is
+        // reached.
+        let mut b = TpnBuilder::new();
+        let p = b.add_marked_place("p", Tag(()), 2);
+        let q = b.add_place("q", Tag(()));
+        let t = b.add_transition("t", TpnTransition::new((), Interval::closed(1, 2)));
+        b.add_input_arc(p, t, 1);
+        b.add_output_arc(q, t, 1);
+        let (net, initial) = b.build();
+
+        let m = scg_markings_multi(&net, &initial, multiple(DisablingPolicy::OldestFirst), 100);
+        assert!(m.contains(&Marking::new(vec![2, 0])), "initial");
+        assert!(m.contains(&Marking::new(vec![1, 1])), "one fired");
+        assert!(m.contains(&Marking::new(vec![0, 2])), "both fired");
+        assert_eq!(m.len(), 3);
+    }
+
+    #[test]
+    fn self_loop_grows_instances() {
+        // p has 1 token; t: p→p+p [2,2]. Hand derivation: one instance at
+        // start; firing it at time 2 leaves two fresh instances (the degree
+        // grew 1 → 2); firing again at time 4 leaves 1 survivor (clock 2) and
+        // two fresh ones (degree 2 → 3). Markings p=1,2,3 are reachable.
+        let mut b = TpnBuilder::new();
+        let p = b.add_marked_place("p", Tag(()), 1);
+        let t = b.add_transition("t", TpnTransition::new((), Interval::closed(2, 2)));
+        b.add_input_arc(p, t, 1);
+        b.add_output_arc(p, t, 2);
+        let (net, initial) = b.build();
+
+        // The net is unbounded (p grows by one per firing), so the SCG
+        // truncates; check the first few markings are found.
+        let graph = unipn::analysis::tpn::state_class_graph(
+            &net,
+            initial.clone(),
+            multiple(DisablingPolicy::OldestFirst),
+            &unipn::analysis::AnalysisConfig {
+                max_states: 20,
+                ..unipn::analysis::AnalysisConfig::default()
+            },
+        )
+        .unwrap();
+        assert!(graph.truncated);
+        let m: BTreeSet<Marking> = graph.states.iter().map(|c| c.marking.clone()).collect();
+        assert!(m.contains(&Marking::new(vec![1])));
+        assert!(m.contains(&Marking::new(vec![2])));
+        assert!(m.contains(&Marking::new(vec![3])));
+    }
+
+    #[test]
+    fn disabling_policy_changes_the_reachable_markings() {
+        // p has 2 tokens; c, c2, c3 hold one token each and exist only to keep
+        // the degree of t, v, x at 1 (they would otherwise inherit p's 2
+        // tokens as two instances). u: p→q [5,10]; t: p+c→r [1,1];
+        // w: r→p [2,2]; v: p+c2→s [4,4]; x: p+c3→xq [5,5].
+        //
+        // Hand derivation: t fires at 1 ({p=1,r=1}, one instance of u
+        // disabled); w fires at 3, restoring p=2, so u has an old instance
+        // (clock 3) and a fresh one (clock 0). v fires at 4 ({p=1,s=1}),
+        // disabling one instance of u again:
+        //  - OldestFirst (FEFD) disables the old instance; the fresh one
+        //    (clock 1) fires no earlier than clock 5, i.e. time 8. x fires at
+        //    time 5, taking the last token of p, so the fresh instance is
+        //    disabled: q is never reached, and {s=1, xq=1} is final.
+        //  - NewestFirst disables the fresh instance; the old one (clock 4)
+        //    can fire from clock 5 on, i.e. at time 5 — simultaneously with x.
+        //    One run fires it there, giving {q=1, s=1}; the other lets x win,
+        //    giving {s=1, xq=1}. So {q=1} is reachable only under
+        //    NewestFirst.
+        let mut b = TpnBuilder::new();
+        let p = b.add_marked_place("p", Tag(()), 2);
+        let c = b.add_marked_place("c", Tag(()), 1);
+        let c2 = b.add_marked_place("c2", Tag(()), 1);
+        let c3 = b.add_marked_place("c3", Tag(()), 1);
+        let q = b.add_place("q", Tag(()));
+        let r = b.add_place("r", Tag(()));
+        let s = b.add_place("s", Tag(()));
+        let xq = b.add_place("xq", Tag(()));
+        let u = b.add_transition("u", TpnTransition::new((), Interval::closed(5, 10)));
+        let t = b.add_transition("t", TpnTransition::new((), Interval::closed(1, 1)));
+        let w = b.add_transition("w", TpnTransition::new((), Interval::closed(2, 2)));
+        let v = b.add_transition("v", TpnTransition::new((), Interval::closed(4, 4)));
+        let x = b.add_transition("x", TpnTransition::new((), Interval::closed(5, 5)));
+        b.add_input_arc(p, u, 1);
+        b.add_output_arc(q, u, 1);
+        b.add_input_arc(p, t, 1);
+        b.add_input_arc(c, t, 1);
+        b.add_output_arc(r, t, 1);
+        b.add_input_arc(r, w, 1);
+        b.add_output_arc(p, w, 1);
+        b.add_input_arc(p, v, 1);
+        b.add_input_arc(c2, v, 1);
+        b.add_output_arc(s, v, 1);
+        b.add_input_arc(p, x, 1);
+        b.add_input_arc(c3, x, 1);
+        b.add_output_arc(xq, x, 1);
+        let (net, initial) = b.build();
+
+        let oldest =
+            scg_markings_multi(&net, &initial, multiple(DisablingPolicy::OldestFirst), 100);
+        let newest =
+            scg_markings_multi(&net, &initial, multiple(DisablingPolicy::NewestFirst), 100);
+
+        let q_tokens = |m: &BTreeSet<Marking>| m.iter().any(|m| m.tokens(q) > 0);
+        assert!(
+            !q_tokens(&oldest),
+            "FEFD: the fresh survivor is disabled by x before its clock reaches 5"
+        );
+        assert!(
+            q_tokens(&newest),
+            "newest-first: the old survivor fires at time 5, reaching q"
+        );
+        assert_ne!(oldest, newest, "the policies must disagree");
+
+        // Both policies agree the oracle: compare against the integer-time
+        // oracle under each policy.
+        let oracle_oldest = multi_integer_markings(
+            &net,
+            &initial,
+            multiple(DisablingPolicy::OldestFirst),
+            50_000,
+        )
+        .unwrap();
+        let oracle_newest = multi_integer_markings(
+            &net,
+            &initial,
+            multiple(DisablingPolicy::NewestFirst),
+            50_000,
+        )
+        .unwrap();
+        assert_eq!(oldest, oracle_oldest);
+        assert_eq!(newest, oracle_newest);
+    }
+
+    // ── Oracle A with multiple tokens ────────────────────────────────────
+
+    /// A small random TPN with weight-1 arcs and 0/1 initial tokens, so the
+    /// enabling degree — and with it the DBM size — stays small.
+    fn random_unit_tpn(seed: u64) -> (TpnNet<(), ()>, Marking) {
+        use super::analysis::Lcg;
+        let mut rng = Lcg::new(seed);
+        let places = 1 + rng.next(3) as usize;
+        let transitions = 1 + rng.next(3) as usize;
+        let mut b = TpnBuilder::new();
+        let ps: Vec<_> = (0..places)
+            .map(|i| b.add_marked_place(format!("p{i}"), Tag(()), rng.next(2) as usize))
+            .collect();
+        for j in 0..transitions {
+            let a = rng.next(3);
+            let interval = Interval::closed(a, a + rng.next(3));
+            let t = b.add_transition(format!("t{j}"), TpnTransition::new((), interval));
+            for &p in &ps {
+                if rng.next(3) == 0 {
+                    b.add_input_arc(p, t, 1);
+                }
+                if rng.next(3) == 0 {
+                    b.add_output_arc(p, t, 1);
+                }
+            }
+        }
+        b.build()
+    }
+
+    #[test]
+    fn oracle_a_multi_server_matches_scg_on_random_nets() {
+        let mut compared = 0usize;
+        for seed in 0..800u64 {
+            let (net, initial) = random_unit_tpn(seed);
+            // Only nets whose untimed state space is small and whose token
+            // counts stay small: the multi-server SCG's DBM has one column per
+            // instance, so large markings are out of reach by design.
+            let Some(untimed) = untimed_markings_limited(&net, &initial, 500) else {
+                continue;
+            };
+            if untimed.iter().any(|m| m.0.iter().sum::<usize>() > 6) {
+                continue;
+            }
+            for disabling in [DisablingPolicy::OldestFirst, DisablingPolicy::NewestFirst] {
+                let semantics = TpnSemantics {
+                    newly_enabled: NewlyEnabled::Intermediate,
+                    servers: Servers::Multiple(MultiServerConfig {
+                        firing: FiringPolicy::OldestFirst,
+                        disabling,
+                    }),
+                };
+                let Some(scg) = scg_markings_limited(&net, &initial, semantics, 500) else {
+                    continue;
+                };
+                let Some(oracle) = multi_integer_markings(&net, &initial, semantics, 500) else {
+                    continue;
+                };
+                assert_eq!(
+                    scg, oracle,
+                    "seed {seed}, disabling {disabling:?}: SCG disagrees with the oracle"
+                );
+                compared += 1;
+            }
+        }
+        assert!(compared >= 200, "only {compared} nets compared");
     }
 }
