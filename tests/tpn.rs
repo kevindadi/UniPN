@@ -96,3 +96,52 @@ fn tpn_net_serde_roundtrip() {
     assert_eq!(net.num_places(), 2);
     assert_eq!(net.num_transitions(), 1);
 }
+
+#[cfg(feature = "timed")]
+mod analysis {
+    use unipn::Tag;
+    use unipn::analysis::AnalysisConfig;
+    use unipn::analysis::tpn::{NewlyEnabled, Servers, TpnSemantics, state_class_graph};
+    use unipn::tpn::{Interval, TpnBuilder, TpnTransition};
+
+    fn reachable_markings<PL: Clone + Eq + std::hash::Hash, TL: Clone + Eq + std::hash::Hash>(
+        net: &unipn::tpn::TpnNet<PL, TL>,
+        initial: unipn::Marking,
+        semantics: TpnSemantics,
+    ) -> std::collections::BTreeSet<unipn::Marking> {
+        let graph = state_class_graph(net, initial, semantics, &AnalysisConfig::default()).unwrap();
+        graph.states.iter().map(|c| c.marking.clone()).collect()
+    }
+
+    #[test]
+    fn background_example_intermediate_vs_atomic() {
+        // p has 1 token; `loop: p→p [1,1]`, `t: p→q [2,2]`.
+        let mut b = TpnBuilder::new();
+        let p = b.add_marked_place("p", Tag(()), 1);
+        let q = b.add_place("q", Tag(()));
+        let lp = b.add_transition("loop", TpnTransition::new((), Interval::closed(1, 1)));
+        let t = b.add_transition("t", TpnTransition::new((), Interval::closed(2, 2)));
+        b.add_input_arc(p, lp, 1);
+        b.add_output_arc(p, lp, 1);
+        b.add_input_arc(p, t, 1);
+        b.add_output_arc(q, t, 1);
+        let (net, initial) = b.build();
+
+        let intermediate = TpnSemantics {
+            newly_enabled: NewlyEnabled::Intermediate,
+            servers: Servers::Single,
+        };
+        let atomic = TpnSemantics {
+            newly_enabled: NewlyEnabled::Atomic,
+            servers: Servers::Single,
+        };
+
+        let m_inter = reachable_markings(&net, initial.clone(), intermediate);
+        let m_atomic = reachable_markings(&net, initial.clone(), atomic);
+
+        // Intermediate: t resets after every loop firing, so q is unreachable.
+        assert!(!m_inter.iter().any(|m| m.tokens(q) > 0));
+        // Atomic: t keeps its clock across loop firings, so q is reachable.
+        assert!(m_atomic.iter().any(|m| m.tokens(q) > 0));
+    }
+}

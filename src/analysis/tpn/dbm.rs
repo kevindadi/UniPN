@@ -223,7 +223,10 @@ impl Dbm {
         Ok(result)
     }
 
-    fn has_negative_diagonal(&self) -> bool {
+    /// Whether any diagonal constraint is unsatisfiable. Sound only after
+    /// [`normalize`](Dbm::normalize); the state-class graph always normalizes
+    /// before calling this.
+    pub fn has_negative_diagonal(&self) -> bool {
         (0..self.size).any(|i| self.matrix[i * self.size + i].is_negative())
     }
 }

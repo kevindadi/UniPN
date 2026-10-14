@@ -7,5 +7,9 @@
 //! the two are independent and do not share a DBM.
 
 pub mod dbm;
+pub mod reachability;
+pub mod state_class;
 
 pub use dbm::{Bound, Dbm, Overflow};
+pub use reachability::{NewlyEnabled, Servers, StateClassSpace, TpnSemantics, state_class_graph};
+pub use state_class::{InstanceKey, StateClass};
