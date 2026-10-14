@@ -93,9 +93,8 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
     /// the price of the fallback.
     pub fn is_sink(&self, place: PlaceId) -> bool {
         !self
-            .arcs
-            .iter()
-            .any(|arc| arc.place == place && matches!(arc.direction, ArcDir::Input | ArcDir::Reset))
+            .arcs_at(place)
+            .any(|arc| matches!(arc.direction, ArcDir::Input | ArcDir::Reset))
     }
 }
 
@@ -163,8 +162,8 @@ impl<PK: PlaceRole, TK: TransitionRole, AK> Net<PK, TK, AK> {
             return false;
         }
         let mut has_exit = false;
-        for arc in &self.arcs {
-            if arc.place != place || !matches!(arc.direction, ArcDir::Input | ArcDir::Reset) {
+        for arc in self.arcs_at(place) {
+            if !matches!(arc.direction, ArcDir::Input | ArcDir::Reset) {
                 continue;
             }
             has_exit = true;

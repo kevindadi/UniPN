@@ -67,7 +67,7 @@ impl ReductionGraph {
             })
             .collect();
 
-        for arc in &net.arcs {
+        for arc in net.arcs() {
             let p = arc.place.index();
             let t = arc.transition.index();
             match arc.direction {

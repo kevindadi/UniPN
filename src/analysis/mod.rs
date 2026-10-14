@@ -17,11 +17,14 @@
 //! enabled.
 
 pub mod cvn;
+mod hash;
 pub mod pt;
 #[cfg(feature = "timed")]
 pub mod timed;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+
+use hash::FxHashMap;
 use std::hash::Hash;
 
 use crate::net::{ArcDir, Net, PlaceId, TransitionId};
@@ -45,6 +48,22 @@ pub trait NetLike {
 
     /// Fire `transition` from `state`; `None` if it is not enabled.
     fn fire(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State>;
+
+    /// Fire a `transition` that [`enabled`](NetLike::enabled) just returned for
+    /// this same `state`, without deciding enabling a second time.
+    ///
+    /// This is what an explorer calls in its inner loop: it already has the
+    /// enabled set, and [`fire`](NetLike::fire) would re-run the whole enabling
+    /// check (guards included, for the CVN) for every successor. `None` still
+    /// means the firing was rejected — the CVN refuses one that would overfill
+    /// a resource place. The result for a transition that is *not* enabled is
+    /// unspecified; debug builds of the derived impl assert against it.
+    ///
+    /// The default is [`fire`](NetLike::fire), so a hand-written `NetLike`
+    /// stays correct without implementing this.
+    fn successor(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State> {
+        self.fire(state, transition)
+    }
 }
 
 /// A net's firing semantics: the two decisions a frontend makes for itself.
@@ -98,6 +117,14 @@ where
         }
         self.fire_enabled(state, transition)
     }
+
+    fn successor(&self, state: &Self::State, transition: TransitionId) -> Option<Self::State> {
+        debug_assert!(
+            self.can_fire(state, transition),
+            "successor() called with a transition that is not enabled"
+        );
+        self.fire_enabled(state, transition)
+    }
 }
 
 /// Search strategy.
@@ -133,7 +160,9 @@ pub struct ReachabilityGraph<S> {
     /// Indices of states with no enabled transitions (candidate deadlocks).
     pub blocked: Vec<usize>,
     pub truncated: bool,
-    preds: HashMap<usize, (usize, TransitionId)>,
+    /// `preds[i]` is the edge that discovered state `i`; `None` for the initial
+    /// state, which is what makes [`ReachabilityGraph::trace_to`] stop.
+    preds: Vec<Option<(usize, TransitionId)>>,
 }
 
 impl<S> ReachabilityGraph<S> {
@@ -156,7 +185,7 @@ impl<S> ReachabilityGraph<S> {
     pub fn trace_to(&self, target: usize) -> Vec<TransitionId> {
         let mut path = Vec::new();
         let mut current = target;
-        while let Some(&(parent, t)) = self.preds.get(&current) {
+        while let Some(&Some((parent, t))) = self.preds.get(current) {
             path.push(t);
             current = parent;
         }
@@ -186,13 +215,13 @@ pub fn explore<N: NetLike>(
             continue;
         }
         for transition in enabled {
-            let Some(next) = net.fire(&state, transition) else {
+            let Some(next) = net.successor(&state, transition) else {
                 continue;
             };
             let Some((target, is_new)) = explorer.insert(next) else {
                 continue;
             };
-            explorer.record_edge(idx, target, transition);
+            explorer.record_edge(idx, target, transition, is_new);
             if is_new {
                 pending.push_back(target);
             }
@@ -297,9 +326,9 @@ pub struct Counterexample<S> {
 struct Explorer<N: NetLike> {
     max_states: usize,
     states: Vec<N::State>,
-    seen: HashMap<N::State, usize>,
+    seen: FxHashMap<N::State, usize>,
     edges: Vec<(usize, usize, TransitionId)>,
-    preds: HashMap<usize, (usize, TransitionId)>,
+    preds: Vec<Option<(usize, TransitionId)>>,
     blocked: Vec<usize>,
     truncated: bool,
 }
@@ -309,33 +338,41 @@ impl<N: NetLike> Explorer<N> {
         Self {
             max_states,
             states: Vec::new(),
-            seen: HashMap::new(),
+            seen: FxHashMap::default(),
             edges: Vec::new(),
-            preds: HashMap::new(),
+            preds: Vec::new(),
             blocked: Vec::new(),
             truncated: false,
         }
     }
 
+    /// Look `state` up, adding it if it is new. Most successors are states
+    /// already seen, so the lookup comes first and only a new state is cloned
+    /// into the table.
     fn insert(&mut self, state: N::State) -> Option<(usize, bool)> {
-        match self.seen.entry(state.clone()) {
-            std::collections::hash_map::Entry::Occupied(e) => Some((*e.get(), false)),
-            std::collections::hash_map::Entry::Vacant(v) => {
-                if self.states.len() >= self.max_states {
-                    self.truncated = true;
-                    return None;
-                }
-                let idx = self.states.len();
-                self.states.push(state);
-                v.insert(idx);
-                Some((idx, true))
-            }
+        if let Some(&idx) = self.seen.get(&state) {
+            return Some((idx, false));
         }
+        if self.states.len() >= self.max_states {
+            self.truncated = true;
+            return None;
+        }
+        let idx = self.states.len();
+        self.seen.insert(state.clone(), idx);
+        self.states.push(state);
+        self.preds.push(None);
+        Some((idx, true))
     }
 
-    fn record_edge(&mut self, src: usize, dst: usize, t: TransitionId) {
+    /// Record an edge, and make it `dst`'s predecessor if `dst` was just
+    /// discovered through it. Only a newly discovered state gets one: an edge
+    /// back into the initial state must not give the root a parent, or
+    /// `trace_to` would walk that cycle forever.
+    fn record_edge(&mut self, src: usize, dst: usize, t: TransitionId, is_new: bool) {
         self.edges.push((src, dst, t));
-        self.preds.entry(dst).or_insert((src, t));
+        if is_new {
+            self.preds[dst] = Some((src, t));
+        }
     }
 
     fn finish(self) -> ReachabilityGraph<N::State> {

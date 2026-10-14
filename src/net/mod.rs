@@ -15,7 +15,9 @@
 //! clock zones, …) lives in its own [`State`] `extra` payload.
 //!
 //! This module is the crate's *generic core*: [`ids`] holds the index-based
-//! identifiers, [`incidence`] the derived adjacency/incidence views, [`firing`]
+//! identifiers, a private `arc_index` the per-transition and per-place arc
+//! index the net maintains for itself, [`incidence`] the derived
+//! adjacency/incidence views, [`firing`]
 //! the structural firing primitives every frontend shares, [`roles`] the
 //! questions an analysis asks a kind about the role a node plays, [`places`] the
 //! one place classification the two control-flow frontends share, and
@@ -23,6 +25,7 @@
 //! frontend-specific kinds live in [`pt`](crate::pt), [`timed`](crate::timed),
 //! and [`cvn`](crate::cvn).
 
+mod arc_index;
 pub mod builder;
 pub mod firing;
 pub mod ids;
@@ -31,6 +34,8 @@ pub mod places;
 pub mod roles;
 
 use serde::{Deserialize, Serialize};
+
+use arc_index::ArcIndex;
 
 pub use builder::NetBuilder;
 pub use firing::PlaceCapacity;
@@ -117,11 +122,49 @@ impl<K> Arc<K> {
 
 /// The generic net: places, transitions, and arcs, parameterized by their kind
 /// payloads. Pure structure; no marking and no firing semantics live here.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+///
+/// `places` and `transitions` are public; the arc list is not. The net keeps an
+/// adjacency index over its arcs (`net/arc_index.rs`) so that firing a
+/// transition only looks at that transition's own arcs, and the index can only
+/// be trusted if every change to the arc list goes through a method that
+/// updates it: [`add_arc`](Net::add_arc), [`set_arc_weight`](Net::set_arc_weight),
+/// or a round trip through [`into_parts`](Net::into_parts) /
+/// [`from_parts`](Net::from_parts). Read the arcs with [`arcs`](Net::arcs).
+///
+/// Serializes as the same `{places, transitions, arcs}` object it always did;
+/// the index is rebuilt on deserialization.
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Net<PK = (), TK = (), AK = ()> {
     pub places: Vec<Place<PK>>,
     pub transitions: Vec<Transition<TK>>,
-    pub arcs: Vec<Arc<AK>>,
+    arcs: Vec<Arc<AK>>,
+    #[serde(skip)]
+    index: ArcIndex,
+}
+
+/// The wire shape of [`Net`]: everything but the derived index.
+#[derive(Deserialize)]
+#[serde(rename = "Net")]
+struct NetParts<PK, TK, AK> {
+    places: Vec<Place<PK>>,
+    transitions: Vec<Transition<TK>>,
+    arcs: Vec<Arc<AK>>,
+}
+
+impl<'de, PK, TK, AK> Deserialize<'de> for Net<PK, TK, AK>
+where
+    PK: Deserialize<'de>,
+    TK: Deserialize<'de>,
+    AK: Deserialize<'de>,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let parts = NetParts::deserialize(deserializer)?;
+        Ok(Self::from_parts(
+            parts.places,
+            parts.transitions,
+            parts.arcs,
+        ))
+    }
 }
 
 impl<PK, TK, AK> Default for Net<PK, TK, AK> {
@@ -136,7 +179,36 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
             places: Vec::new(),
             transitions: Vec::new(),
             arcs: Vec::new(),
+            index: ArcIndex::default(),
         }
+    }
+
+    /// Assemble a net from its three lists, indexing the arcs.
+    ///
+    /// The way to construct a net whose arcs were produced elsewhere — a
+    /// reduction, a converter, a rewrite of [`into_parts`](Net::into_parts).
+    /// Arc endpoints are not validated, exactly as with [`add_arc`](Net::add_arc).
+    pub fn from_parts(
+        places: Vec<Place<PK>>,
+        transitions: Vec<Transition<TK>>,
+        arcs: Vec<Arc<AK>>,
+    ) -> Self {
+        let index = ArcIndex::build(&arcs);
+        Self {
+            places,
+            transitions,
+            arcs,
+            index,
+        }
+    }
+
+    /// Take the net apart, for an arc rewrite [`set_arc_weight`](Net::set_arc_weight)
+    /// cannot express; put it back together with [`from_parts`](Net::from_parts).
+    // The tuple is exactly `from_parts`'s argument list; a named alias would
+    // only hide that.
+    #[allow(clippy::type_complexity)]
+    pub fn into_parts(self) -> (Vec<Place<PK>>, Vec<Transition<TK>>, Vec<Arc<AK>>) {
+        (self.places, self.transitions, self.arcs)
     }
 
     pub fn num_places(&self) -> usize {
@@ -200,6 +272,7 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
     ) {
         self.arcs
             .push(Arc::new(place, transition, direction, weight, kind));
+        self.index.insert(&self.arcs, self.arcs.len() - 1);
     }
 
     pub fn add_input_arc(&mut self, place: PlaceId, transition: TransitionId, kind: AK)
@@ -216,9 +289,52 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
         self.add_arc(place, transition, ArcDir::Output, 1, kind);
     }
 
-    /// All arcs incident to `transition`.
+    /// Every arc, in insertion order. An arc's position in this slice is the
+    /// `index` that [`set_arc_weight`](Net::set_arc_weight) and
+    /// [`find_arc`](Net::find_arc) speak of.
+    pub fn arcs(&self) -> &[Arc<AK>] {
+        &self.arcs
+    }
+
+    /// Overwrite the weight of the arc at `index`; `false` if there is none.
+    ///
+    /// The one in-place arc edit the net allows, because it is the one that
+    /// keeps every arc where it is.
+    pub fn set_arc_weight(&mut self, index: usize, weight: usize) -> bool {
+        let Some(arc) = self.arcs.get_mut(index) else {
+            return false;
+        };
+        arc.weight = weight;
+        let transition = arc.transition;
+        self.index.refresh_demand(&self.arcs, transition);
+        true
+    }
+
+    /// The position of the first `place`–`transition` arc in `direction`.
+    pub fn find_arc(
+        &self,
+        place: PlaceId,
+        transition: TransitionId,
+        direction: ArcDir,
+    ) -> Option<usize> {
+        self.index
+            .of_transition(transition)
+            .iter()
+            .copied()
+            .find(|&i| self.arcs[i].place == place && self.arcs[i].direction == direction)
+    }
+
+    /// All arcs incident to `transition`, in insertion order.
     pub fn arcs_for(&self, transition: TransitionId) -> impl Iterator<Item = &Arc<AK>> {
-        self.arcs.iter().filter(move |a| a.transition == transition)
+        self.index
+            .of_transition(transition)
+            .iter()
+            .map(|&i| &self.arcs[i])
+    }
+
+    /// All arcs incident to `place`, in insertion order.
+    pub fn arcs_at(&self, place: PlaceId) -> impl Iterator<Item = &Arc<AK>> {
+        self.index.of_place(place).iter().map(|&i| &self.arcs[i])
     }
 
     /// Arcs of a given direction incident to `transition`.
@@ -227,31 +343,30 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
         transition: TransitionId,
         direction: ArcDir,
     ) -> impl Iterator<Item = &Arc<AK>> {
-        self.arcs
-            .iter()
-            .filter(move |a| a.transition == transition && a.direction == direction)
+        self.arcs_for(transition)
+            .filter(move |a| a.direction == direction)
     }
 
     /// The preset of `transition` (Input + Read + Inhibitor arcs).
     pub fn pre_arcs(&self, transition: TransitionId) -> Vec<&Arc<AK>> {
-        self.arcs
-            .iter()
+        self.arcs_for(transition)
             .filter(|a| {
-                a.transition == transition
-                    && matches!(
-                        a.direction,
-                        ArcDir::Input | ArcDir::Read | ArcDir::Inhibitor
-                    )
+                matches!(
+                    a.direction,
+                    ArcDir::Input | ArcDir::Read | ArcDir::Inhibitor
+                )
             })
             .collect()
     }
 
     /// The postset of `transition` (Output arcs).
     pub fn post_arcs(&self, transition: TransitionId) -> Vec<&Arc<AK>> {
-        self.arcs
-            .iter()
-            .filter(|a| a.transition == transition && a.direction == ArcDir::Output)
-            .collect()
+        self.arcs_of(transition, ArcDir::Output).collect()
+    }
+
+    /// `transition`'s input weights with parallel arcs summed, from the index.
+    pub(crate) fn input_demand(&self, transition: TransitionId) -> &[(PlaceId, usize)] {
+        self.index.demand(transition)
     }
 
     /// Aggregated adjacency snapshot (preset/postset plus read/inhibitor/reset).

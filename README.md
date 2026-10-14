@@ -20,7 +20,7 @@ One generic net, three instantiations:
 pub struct Place<K = ()>     { id: PlaceId, name: String, kind: K }
 pub struct Transition<K = ()> { id: TransitionId, name: String, kind: K }
 pub struct Arc<K = ()>       { place, transition, direction: ArcDir, weight: usize, kind: K }
-pub struct Net<PK, TK, AK>   { places: Vec<Place<PK>>, transitions: Vec<Transition<TK>>, arcs: Vec<Arc<AK>> }
+pub struct Net<PK, TK, AK>   { pub places: Vec<Place<PK>>, pub transitions: Vec<Transition<TK>>, /* arcs + their index: private */ }
 pub struct Marking(pub Vec<usize>);       // index = place id, value = tokens
 pub struct State<E = ()>      { marking: Marking, extra: E }
 ```
@@ -71,6 +71,8 @@ Within a frontend directory `kinds.rs` holds the payloads and the net alias, `se
 ## Firing
 
 Whatever follows from the arc structure alone is shared, in [`net::firing`](src/net/firing.rs): `structurally_enabled` (parallel input weights summed per place, read arcs satisfied, inhibitor arcs clear), `consume_inputs`, `apply_resets`, and the capacity lookup behind the `PlaceCapacity` trait.
+
+All of them look only at the transition's own arcs. `Net` keeps an index of arc positions by transition and by place, with each transition's input demand pre-summed, and that index is why the arc list is private: read it with `net.arcs()` or the indexed `arcs_for` / `arcs_of` / `arcs_at` / `find_arc`, add with `add_arc`, reweight with `set_arc_weight`, and do anything more drastic through `into_parts()` / `from_parts(..)`, which reindexes. The JSON shape is unchanged. On the philosophers benchmark (`cargo run --release --example explore_bench`) this, a non-SipHash seen-set, and not re-deciding enabling for each successor (`NetLike::successor`) cut n = 15 (551 614 states, 5.3 M edges) from 4.7 s to 1.7 s, with every count unchanged; the gap grows with the arc count, since the old per-state cost was `|T| · |A|`.
 
 What a frontend decides for itself is its `Semantics` impl — two methods, `can_fire` and `fire_enabled`; `NetLike` is then derived for it. The capacity policy is the clearest example of a genuine difference: `PtNet` clamps an over-capacity place, `TimedNet` clamps and reports which non-saturating places it clamped (the state-class graph collects these in `stats.overflowed_places`), and `CvnNet` rejects the firing.
 

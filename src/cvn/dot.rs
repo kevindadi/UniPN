@@ -38,7 +38,7 @@ pub fn to_dot(net: &CvnNet) -> String {
         ));
     }
 
-    for arc in &net.arcs {
+    for arc in net.arcs() {
         match arc.direction {
             ArcDir::Input => out.push_str(&format!(
                 "  p{} -> t{};\n",

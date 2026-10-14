@@ -62,7 +62,7 @@ impl PtNet {
                 transition.name, transition.kind.transition_type
             ));
         }
-        for arc in &self.arcs {
+        for arc in self.arcs() {
             match arc.direction {
                 ArcDir::Input => out.push_str(&format!(
                     "  p{} -> t{};\n",
@@ -102,14 +102,8 @@ impl PtNet {
 
         for (i, place) in self.places.iter().enumerate() {
             let pid = PlaceId(i);
-            let has_incoming = self
-                .arcs
-                .iter()
-                .any(|a| a.place == pid && a.direction == ArcDir::Output);
-            let has_outgoing = self
-                .arcs
-                .iter()
-                .any(|a| a.place == pid && a.direction == ArcDir::Input);
+            let has_incoming = self.arcs_at(pid).any(|a| a.direction == ArcDir::Output);
+            let has_outgoing = self.arcs_at(pid).any(|a| a.direction == ArcDir::Input);
             if !has_incoming && !has_outgoing {
                 report.isolated_places.push((pid, place.name.clone()));
             }
@@ -117,14 +111,8 @@ impl PtNet {
 
         for (i, transition) in self.transitions.iter().enumerate() {
             let tid = TransitionId(i);
-            let has_preset = self
-                .arcs
-                .iter()
-                .any(|a| a.transition == tid && a.direction == ArcDir::Input);
-            let has_postset = self
-                .arcs
-                .iter()
-                .any(|a| a.transition == tid && a.direction == ArcDir::Output);
+            let has_preset = self.arcs_of(tid, ArcDir::Input).next().is_some();
+            let has_postset = self.arcs_of(tid, ArcDir::Output).next().is_some();
             if !has_preset && !has_postset {
                 report
                     .isolated_transitions

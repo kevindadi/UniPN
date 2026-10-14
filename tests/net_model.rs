@@ -689,3 +689,90 @@ fn cvn_incidence_is_the_token_skeleton_guards_do_not_enter_c() {
     assert_eq!(graph.edge_count(), 3);
     assert_eq!(graph.states.last().unwrap().marking.tokens(p), 1);
 }
+
+// ── Explorer ─────────────────────────────────────────────────────────────
+
+/// A net that returns to its initial marking. The explorer used to record a
+/// predecessor for the initial state as well, so `trace_to` walked the cycle
+/// forever instead of stopping at the root.
+#[test]
+fn trace_to_terminates_when_the_initial_state_is_revisited() {
+    let mut net = PtNet::new();
+    let a = net.add_place("a", PtPlaceKind::control(ControlSub::BasicBlock));
+    let b = net.add_place("b", PtPlaceKind::control(ControlSub::BasicBlock));
+    let c = net.add_place("c", PtPlaceKind::control(ControlSub::BasicBlock));
+    let ab = net.add_transition("ab", PtTransitionKind::new(TransitionType::Goto));
+    let bc = net.add_transition("bc", PtTransitionKind::new(TransitionType::Goto));
+    let ca = net.add_transition("ca", PtTransitionKind::new(TransitionType::Goto));
+    for (from, t, to) in [(a, ab, b), (b, bc, c), (c, ca, a)] {
+        net.add_arc(from, t, ArcDir::Input, 1, ());
+        net.add_arc(to, t, ArcDir::Output, 1, ());
+    }
+
+    let graph = explore(
+        &net,
+        Marking::new(vec![1, 0, 0]),
+        &AnalysisConfig::default(),
+    );
+    assert_eq!(graph.state_count(), 3);
+    assert_eq!(graph.edge_count(), 3);
+    assert_eq!(graph.trace_to(graph.initial), Vec::<TransitionId>::new());
+    let at_c = graph.states.iter().position(|m| m.tokens(c) == 1).unwrap();
+    assert_eq!(graph.trace_to(at_c), vec![ab, bc]);
+}
+
+// ── Arc index ────────────────────────────────────────────────────────────
+
+/// Two parallel input arcs on one place: enabling has to see their sum.
+fn pt_parallel_inputs() -> (PtNet, Marking) {
+    let mut net = PtNet::new();
+    let p = net.add_place("p", PtPlaceKind::control(ControlSub::BasicBlock));
+    let q = net.add_place("q", PtPlaceKind::control(ControlSub::BasicBlock));
+    let t = net.add_transition("t", PtTransitionKind::new(TransitionType::Normal));
+    net.add_arc(p, t, ArcDir::Input, 1, ());
+    net.add_arc(p, t, ArcDir::Input, 1, ());
+    net.add_arc(q, t, ArcDir::Output, 1, ());
+    (net, Marking::new(vec![2, 0]))
+}
+
+#[test]
+fn reweighting_an_arc_updates_enabling() {
+    let (mut net, initial) = pt_parallel_inputs();
+    let t = TransitionId(0);
+    assert_eq!(net.enabled(&initial), vec![t]);
+    assert!(net.enabled(&Marking::new(vec![1, 0])).is_empty());
+
+    let first = net.find_arc(PlaceId(0), t, ArcDir::Input).unwrap();
+    assert!(net.set_arc_weight(first, 2));
+    assert!(net.enabled(&initial).is_empty(), "demand is now 2 + 1");
+    assert!(!net.set_arc_weight(99, 1));
+}
+
+#[test]
+fn a_net_rebuilt_from_its_parts_or_from_json_fires_the_same() {
+    let (net, initial) = pt_parallel_inputs();
+
+    let (places, transitions, arcs) = net.clone().into_parts();
+    let rebuilt = PtNet::from_parts(places, transitions, arcs);
+    assert_eq!(rebuilt, net);
+
+    let json = serde_json::to_value(&net).unwrap();
+    assert_eq!(
+        json.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["arcs", "places", "transitions"],
+        "the index is not part of the wire format"
+    );
+    let decoded: PtNet = serde_json::from_value(json).unwrap();
+    assert_eq!(decoded, net);
+    assert_eq!(decoded.enabled(&initial), net.enabled(&initial));
+    assert!(decoded.enabled(&Marking::new(vec![1, 0])).is_empty());
+}
+
+#[test]
+fn arcs_at_lists_every_arc_on_a_place_in_insertion_order() {
+    let (net, _) = pt_parallel_inputs();
+    let on_p: Vec<_> = net.arcs_at(PlaceId(0)).map(|a| a.direction).collect();
+    assert_eq!(on_p, [ArcDir::Input, ArcDir::Input]);
+    assert_eq!(net.arcs_at(PlaceId(1)).count(), 1);
+    assert_eq!(net.arcs_at(PlaceId(7)).count(), 0);
+}

@@ -48,8 +48,8 @@ impl PtBuilder {
         }
         match self.arc_index(place, transition, direction) {
             Some(i) => {
-                let arc = &mut self.net_mut().arcs[i];
-                arc.weight = arc.weight.saturating_add(weight);
+                let total = self.net().arcs()[i].weight.saturating_add(weight);
+                self.net_mut().set_arc_weight(i, total);
             }
             None => self.add_arc(place, transition, direction, weight, ()),
         }
@@ -63,7 +63,9 @@ impl PtBuilder {
         weight: usize,
     ) {
         match self.arc_index(place, transition, direction) {
-            Some(i) => self.net_mut().arcs[i].weight = weight,
+            Some(i) => {
+                self.net_mut().set_arc_weight(i, weight);
+            }
             None => self.add_arc(place, transition, direction, weight, ()),
         }
     }
@@ -74,9 +76,7 @@ impl PtBuilder {
         transition: TransitionId,
         direction: ArcDir,
     ) -> Option<usize> {
-        self.net().arcs.iter().position(|a| {
-            a.place == place && a.transition == transition && a.direction == direction
-        })
+        self.net().find_arc(place, transition, direction)
     }
 
     /// A cloned snapshot of the built net + initial marking (without consuming

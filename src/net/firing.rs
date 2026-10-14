@@ -11,7 +11,7 @@
 //! [`Net::produce_outputs_bounded`], and by the frontend's own
 //! [`Semantics`](crate::analysis::Semantics) impl.
 
-use crate::net::{ArcDir, Marking, Net, PlaceId, TransitionId, accumulate};
+use crate::net::{ArcDir, Marking, Net, PlaceId, TransitionId};
 
 /// A place kind that carries a token capacity.
 ///
@@ -48,9 +48,8 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
         transition: TransitionId,
         direction: ArcDir,
     ) -> usize {
-        self.arcs
-            .iter()
-            .filter(|a| a.place == place && a.transition == transition && a.direction == direction)
+        self.arcs_of(transition, direction)
+            .filter(|a| a.place == place)
             .map(|a| a.weight)
             .sum()
     }
@@ -60,27 +59,22 @@ impl<PK, TK, AK> Net<PK, TK, AK> {
     ///
     /// This is the *whole* enabling condition for a plain P/T or timed net. A
     /// net with guards (CVN) checks this first and then its own predicates.
+    ///
+    /// The input demand comes pre-summed from the net's arc index, so the cost
+    /// is the transition's own arcs and there is no allocation.
     pub fn structurally_enabled(&self, marking: &Marking, transition: TransitionId) -> bool {
-        let mut demand: Vec<(PlaceId, usize)> = Vec::new();
-        for arc in self.arcs_for(transition) {
-            match arc.direction {
-                ArcDir::Input => accumulate(&mut demand, arc.place, arc.weight),
-                ArcDir::Read => {
-                    if marking.tokens(arc.place) < arc.weight {
-                        return false;
-                    }
-                }
-                ArcDir::Inhibitor => {
-                    if marking.tokens(arc.place) >= arc.weight {
-                        return false;
-                    }
-                }
-                ArcDir::Output | ArcDir::Reset => {}
-            }
+        if self
+            .input_demand(transition)
+            .iter()
+            .any(|&(place, count)| marking.tokens(place) < count)
+        {
+            return false;
         }
-        demand
-            .into_iter()
-            .all(|(place, count)| marking.tokens(place) >= count)
+        self.arcs_for(transition).all(|arc| match arc.direction {
+            ArcDir::Read => marking.tokens(arc.place) >= arc.weight,
+            ArcDir::Inhibitor => marking.tokens(arc.place) < arc.weight,
+            ArcDir::Input | ArcDir::Output | ArcDir::Reset => true,
+        })
     }
 
     /// Consume the input tokens of `transition`.

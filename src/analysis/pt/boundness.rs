@@ -128,7 +128,7 @@ impl BoundnessAnalyzer {
             let state = Marking::new(concrete);
 
             for transition in net.enabled(&state) {
-                let Some(next_state) = net.fire(&state, transition) else {
+                let Some(next_state) = net.successor(&state, transition) else {
                     continue;
                 };
                 let mut next: Vec<Option<usize>> = next_state.0.iter().map(|&t| Some(t)).collect();

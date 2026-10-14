@@ -2,8 +2,11 @@
 //!
 //! The view is a derived snapshot: it aggregates parallel arcs of the same
 //! direction and indexes endpoints by place/transition id. It does **not**
-//! live inside [`Net`], because the net's `arcs` field is
-//! public and can change after construction.
+//! live inside [`Net`]: the net keeps only the minimal index firing needs
+//! (arc positions and the summed input demand), which it can update in place
+//! as arcs are added or reweighted, while this snapshot is the full
+//! both-directions view the structural analyses want, and is rebuilt on
+//! demand.
 //!
 //! # What the matrix captures
 //!
@@ -75,7 +78,7 @@ impl Incidence {
             resets_of: vec![Vec::new(); n_p],
         };
 
-        for arc in &net.arcs {
+        for arc in net.arcs() {
             let p = arc.place.index();
             let t = arc.transition.index();
             if p >= n_p || t >= n_t {

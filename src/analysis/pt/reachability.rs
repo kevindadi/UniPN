@@ -351,7 +351,7 @@ impl StateGraph {
             }
 
             for transition_id in enabled {
-                match net.fire(&current_marking, transition_id) {
+                match net.successor(&current_marking, transition_id) {
                     Some(next_marking) => {
                         let target_index = match markings.entry(next_marking.clone()) {
                             std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
@@ -444,7 +444,7 @@ impl StateGraph {
             let to_fire: Vec<TransitionId> = enabled.difference(&sleep).copied().collect();
 
             for transition_id in to_fire {
-                match net.fire(&current_marking, transition_id) {
+                match net.successor(&current_marking, transition_id) {
                     Some(next_marking) => {
                         let enabled_next: HashSet<TransitionId> =
                             net.enabled(&next_marking).into_iter().collect();
