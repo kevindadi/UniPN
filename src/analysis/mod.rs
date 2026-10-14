@@ -31,6 +31,8 @@ pub mod labels;
 pub mod pt;
 #[cfg(feature = "timed")]
 pub mod timed;
+#[cfg(feature = "timed")]
+pub mod tpn;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
