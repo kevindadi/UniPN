@@ -34,6 +34,12 @@ pub trait PlaceRole {
     fn is_thread_place(&self) -> bool {
         false
     }
+
+    /// A data or predicate value. A token here is never a stuck thread.
+    /// Default `false`.
+    fn is_data(&self) -> bool {
+        false
+    }
 }
 
 /// A transition kind that classifies the concurrency operation it stands for.
@@ -125,13 +131,22 @@ impl<PK: PlaceRole, TK, AK> Net<PK, TK, AK> {
             .is_some_and(|p| p.kind.is_thread_place())
     }
 
-    /// The places whose tokens say a thread is stuck: control-flow places that
-    /// are not a function end and not a thread token.
+    /// Whether `place` holds a data value rather than a thread.
+    pub fn is_data_place(&self, place: PlaceId) -> bool {
+        self.place(place).is_some_and(|p| p.kind.is_data())
+    }
+
+    /// The places whose tokens say a thread is stuck.
+    ///
+    /// A token blocks a thread only when the place is a control role other
+    /// than `FunctionEnd` and `ThreadPlace`, and the role is not `Data`. A
+    /// control place with no consumer arc is an ending ([`Net::is_sink`]), not
+    /// a stuck thread. The place name is never read.
     ///
     /// A resource token is not evidence of anything — an unlocked mutex sits on
-    /// its own resource place — and a token on a function end is a thread that
-    /// finished. A token on a thread place is the parent waiting to join, not
-    /// a thread that is stuck, even when a `Join` consumes it.
+    /// its own resource place. A token on a thread place is the parent waiting
+    /// to join, not a thread that is stuck, even when a `Join` consumes it.
+    /// A token on a data place is a predicate value, never a blocked thread.
     pub fn blocked_places(&self, marking: &Marking) -> Vec<PlaceId> {
         marking
             .iter_nonzero()
@@ -141,7 +156,10 @@ impl<PK: PlaceRole, TK, AK> Net<PK, TK, AK> {
     }
 
     fn blocks_a_thread(&self, place: PlaceId) -> bool {
-        !self.is_resource(place) && !self.is_thread_place(place) && !self.is_terminal(place)
+        !self.is_resource(place)
+            && !self.is_data_place(place)
+            && !self.is_thread_place(place)
+            && !self.is_terminal(place)
     }
 
     /// Whether a marking that has nothing left to fire is a genuine deadlock.
@@ -176,7 +194,11 @@ impl<PK: PlaceRole, TK: TransitionRole, AK> Net<PK, TK, AK> {
     /// own place is not waiting for anything), and neither is a place nothing
     /// consumes from — that is a [sink](Net::is_sink), an ending.
     pub fn is_wait_point(&self, place: PlaceId) -> bool {
-        if self.place(place).is_none_or(|p| p.kind.is_resource()) {
+        // A data place is never a wait point, even when its only consumer is a
+        // `Wait`. The role decides; the name is not consulted.
+        if self.place(place).is_none_or(|p| {
+            p.kind.is_resource() || p.kind.is_data() || p.kind.is_thread_place()
+        }) {
             return false;
         }
         let mut has_exit = false;

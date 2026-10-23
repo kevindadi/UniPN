@@ -19,7 +19,7 @@ pub fn to_dot(net: &CvnNet) -> String {
             PlaceKind::Control(ControlSub::FunctionEnd) => "end",
             PlaceKind::Control(ControlSub::FunctionStart) => "start",
             PlaceKind::Control(ControlSub::ThreadPlace) => "thread",
-            PlaceKind::Control(ControlSub::BasicBlock) => "",
+            PlaceKind::Control(ControlSub::BasicBlock) | PlaceKind::Data(_) => "",
         };
         out.push_str(&format!(
             "  p{} [label=\"{}\\n{}\"];\n",

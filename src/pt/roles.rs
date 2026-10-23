@@ -21,7 +21,7 @@ impl<TK, AK> Net<PtPlaceKind, TK, AK> {
     pub fn resource_kind(&self, place: PlaceId) -> Option<ResourceKind> {
         match &self.place(place)?.kind.place_type {
             PlaceClass::Resource(kind) => Some(*kind),
-            PlaceClass::Control(_) => None,
+            PlaceClass::Control(_) | PlaceClass::Data(_) => None,
         }
     }
 }
@@ -37,6 +37,10 @@ impl PlaceRole for PtPlaceKind {
 
     fn is_thread_place(&self) -> bool {
         self.place_type.is_thread_place()
+    }
+
+    fn is_data(&self) -> bool {
+        self.place_type.is_data()
     }
 }
 

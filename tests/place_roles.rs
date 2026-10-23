@@ -3,7 +3,7 @@
 use unipn::analysis::pt::StateGraph;
 use unipn::net::{ArcDir, Marking};
 use unipn::pt::{PtPlaceKind, PtTransitionKind, ResourceKind, TransitionType};
-use unipn::{ControlSub, PlaceClass, PlaceRole, PtNet};
+use unipn::{ControlSub, DataSub, PlaceClass, PlaceRole, PtNet};
 
 #[test]
 fn resource_kind_round_trips_from_construction() {
@@ -81,4 +81,44 @@ fn function_end_is_still_the_only_annotated_thread_end() {
     assert!(!net.place(stuck).unwrap().kind.is_terminal());
     assert!(!net.is_deadlock(&Marking::new(vec![1, 0])));
     assert!(net.is_deadlock(&Marking::new(vec![0, 1])));
+}
+
+#[test]
+fn data_token_is_not_a_deadlock_candidate() {
+    let mut net = PtNet::new();
+    let data = net.add_place(
+        "data.flag.true",
+        PtPlaceKind::new(PlaceClass::Data(DataSub::Predicate)),
+    );
+    let missing = net.add_place("other", PtPlaceKind::control(ControlSub::BasicBlock));
+    let step = net.add_transition("step", PtTransitionKind::new(TransitionType::Normal));
+    net.add_arc(data, step, ArcDir::Input, 1, ());
+    net.add_arc(missing, step, ArcDir::Input, 1, ());
+
+    let marking = Marking::new(vec![1, 0]);
+    assert!(net.is_data_place(data));
+    assert!(!net.is_sink(data));
+    assert!(!net.is_deadlock(&marking));
+    assert!(net.blocked_places(&marking).is_empty());
+    let graph = StateGraph::from_net(&net, marking);
+    assert!(graph.deadlock_states(&net).is_empty());
+}
+
+#[test]
+fn data_place_is_not_a_wait_point() {
+    let mut net = PtNet::new();
+    let data = net.add_place(
+        "data.flag.false",
+        PtPlaceKind::new(PlaceClass::Data(DataSub::Predicate)),
+    );
+    let after = net.add_place("bb", PtPlaceKind::control(ControlSub::BasicBlock));
+    let wait = net.add_transition("wait", PtTransitionKind::new(TransitionType::Wait));
+    net.add_arc(data, wait, ArcDir::Input, 1, ());
+    net.add_arc(after, wait, ArcDir::Output, 1, ());
+
+    assert!(!net.is_wait_point(data));
+
+    let block = net.add_place("parked", PtPlaceKind::control(ControlSub::BasicBlock));
+    net.add_arc(block, wait, ArcDir::Input, 1, ());
+    assert!(net.is_wait_point(block));
 }

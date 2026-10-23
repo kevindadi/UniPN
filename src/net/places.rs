@@ -68,8 +68,15 @@ pub enum ControlSub {
     ThreadPlace,
 }
 
-/// A place is either a point in some thread's control flow or a shared
-/// resource — the dichotomy every analysis in the crate branches on.
+/// A data value carried by the net. It is not a thread and not a resource.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum DataSub {
+    /// A boolean predicate such as `data.<var>.true` / `data.<var>.false`.
+    Predicate,
+}
+
+/// A place is a point in some thread's control flow, a shared resource, or a
+/// data value. Analyses branch on that role, never on the place's name.
 ///
 /// `R` is the frontend's resource payload: [`ResourceType`] for the CVN,
 /// [`ResourceKind`] for P/T. Deriving `Ord` is conditional on `R`.
@@ -80,6 +87,7 @@ pub enum ControlSub {
 pub enum PlaceClass<R> {
     Control(ControlSub),
     Resource(R),
+    Data(DataSub),
 }
 
 impl<R> PlaceClass<R> {
@@ -87,7 +95,7 @@ impl<R> PlaceClass<R> {
     pub fn control(&self) -> Option<ControlSub> {
         match self {
             Self::Control(sub) => Some(*sub),
-            Self::Resource(_) => None,
+            Self::Resource(_) | Self::Data(_) => None,
         }
     }
 
@@ -95,7 +103,7 @@ impl<R> PlaceClass<R> {
     pub fn resource(&self) -> Option<&R> {
         match self {
             Self::Resource(r) => Some(r),
-            Self::Control(_) => None,
+            Self::Control(_) | Self::Data(_) => None,
         }
     }
 }
@@ -115,5 +123,9 @@ impl<R> PlaceRole for PlaceClass<R> {
 
     fn is_thread_place(&self) -> bool {
         matches!(self, Self::Control(ControlSub::ThreadPlace))
+    }
+
+    fn is_data(&self) -> bool {
+        matches!(self, Self::Data(_))
     }
 }

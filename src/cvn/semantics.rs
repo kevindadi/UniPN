@@ -26,7 +26,7 @@ impl PlaceCapacity for PlaceKind {
             Self::Resource(ResourceType::RwLock { max_readers }) => Some(*max_readers),
             Self::Resource(ResourceType::Semaphore { count }) => Some(*count),
             Self::Resource(ResourceType::Channel { capacity }) => Some(*capacity),
-            Self::Resource(ResourceType::Condvar) | Self::Control(_) => None,
+            Self::Resource(ResourceType::Condvar) | Self::Control(_) | Self::Data(_) => None,
         }
     }
 }
