@@ -10,9 +10,10 @@
 //! Where they genuinely differ is the resource arm, and that is what `R` is for.
 //! The CVN's resource *type* decides the place's capacity ([`PlaceCapacity`] is
 //! implemented on `PlaceClass<ResourceType>`), because in ConcIR the resource
-//! identity already is the place identity. ConcBugDect's resource identity lives
-//! on the transition instead (`Lock(alias)`, `RwLockRead(alias)`) and its
-//! capacity is a separate field, so its resource arm carries nothing: `R = ()`.
+//! identity already is the place identity. ConcBugDect keeps the alias on the
+//! transition (`Lock(alias)`, `RwLockRead(alias)`) and the bound in
+//! [`PtPlaceKind::capacity`]; the P/T arm carries a [`ResourceKind`] so a lock,
+//! a condvar, an atomic and a channel are not the same place.
 //!
 //! This is deliberately a shared *enum*, unlike
 //! [`TransitionRole`](crate::net::TransitionRole), which is a set of predicates
@@ -36,8 +37,10 @@ use crate::net::PlaceRole;
 ///
 /// There is no `ThreadEnd`. In ConcIR a thread **is** a function — `spawn`,
 /// `scope`, and `async_call` all target an ordinary function, and the same
-/// function can be both called and spawned — so being a thread's terminal is a
-/// property of the call site, which a place kind cannot express.
+/// function can be both called and spawned — so the place where that thread
+/// finishes is still [`FunctionEnd`](ControlSub::FunctionEnd).
+/// [`ThreadPlace`](ControlSub::ThreadPlace) is the token the parent holds
+/// until it joins, not that ending.
 ///
 /// There is no `WaitPoint` or `CallWait`. Both named the *operation* a token was
 /// waiting on, and both frontends already keep that on the transition; the
@@ -56,22 +59,35 @@ pub enum ControlSub {
     BasicBlock,
     FunctionStart,
     /// Where a function's control comes to rest, and so also where a spawned
-    /// function's thread ends.
+    /// function's thread ends. A token here is a finished thread.
     FunctionEnd,
+    /// The token a `spawn` gives its parent and a `join` consumes.
+    ///
+    /// A token here is neither a finished thread nor a stuck one. It is not a
+    /// [`FunctionEnd`](ControlSub::FunctionEnd).
+    ThreadPlace,
 }
 
-/// A place is either a point in some thread's control flow or a shared
-/// resource — the dichotomy every analysis in the crate branches on.
+/// A data value carried by the net. It is not a thread and not a resource.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum DataSub {
+    /// A boolean predicate such as `data.<var>.true` / `data.<var>.false`.
+    Predicate,
+}
+
+/// A place is a point in some thread's control flow, a shared resource, or a
+/// data value. Analyses branch on that role, never on the place's name.
 ///
-/// `R` is the frontend's resource payload: [`ResourceType`] for the CVN, `()`
-/// for P/T. Deriving `Ord` is conditional on `R`, so `PlaceClass<()>` is
-/// orderable whether or not the CVN's payload is.
+/// `R` is the frontend's resource payload: [`ResourceType`] for the CVN,
+/// [`ResourceKind`] for P/T. Deriving `Ord` is conditional on `R`.
 ///
 /// [`ResourceType`]: crate::cvn::ResourceType
+/// [`ResourceKind`]: crate::pt::ResourceKind
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum PlaceClass<R> {
     Control(ControlSub),
     Resource(R),
+    Data(DataSub),
 }
 
 impl<R> PlaceClass<R> {
@@ -79,7 +95,7 @@ impl<R> PlaceClass<R> {
     pub fn control(&self) -> Option<ControlSub> {
         match self {
             Self::Control(sub) => Some(*sub),
-            Self::Resource(_) => None,
+            Self::Resource(_) | Self::Data(_) => None,
         }
     }
 
@@ -87,15 +103,9 @@ impl<R> PlaceClass<R> {
     pub fn resource(&self) -> Option<&R> {
         match self {
             Self::Resource(r) => Some(r),
-            Self::Control(_) => None,
+            Self::Control(_) | Self::Data(_) => None,
         }
     }
-}
-
-impl PlaceClass<()> {
-    /// The payload-free resource place, spelled without the `Resource(())`
-    /// noise.
-    pub const RESOURCE: Self = Self::Resource(());
 }
 
 /// One definition for both frontends: a resource is the `Resource` arm, and the
@@ -106,6 +116,16 @@ impl<R> PlaceRole for PlaceClass<R> {
     }
 
     fn is_terminal(&self) -> bool {
+        // Only a function end. `ThreadPlace` is a join token, and a data place
+        // is not a thread at all.
         matches!(self, Self::Control(ControlSub::FunctionEnd))
+    }
+
+    fn is_thread_place(&self) -> bool {
+        matches!(self, Self::Control(ControlSub::ThreadPlace))
+    }
+
+    fn is_data(&self) -> bool {
+        matches!(self, Self::Data(_))
     }
 }

@@ -44,7 +44,7 @@ pub use firing::PlaceCapacity;
 pub use ids::{PlaceId, TransitionId};
 pub use incidence::{Incidence, IncidenceMatrix};
 pub use labels::{Labeled, canonical};
-pub use places::{ControlSub, PlaceClass};
+pub use places::{ControlSub, DataSub, PlaceClass};
 pub use roles::{PlaceRole, TransitionRole};
 
 /// A place node: fixed `id` + `name`, plus a domain-specific `kind`.

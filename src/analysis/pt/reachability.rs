@@ -537,11 +537,14 @@ impl StateGraph {
     }
 
     /// The blocked states that are genuine deadlocks: some control token sits on
-    /// a place that is neither a resource nor a thread end.
+    /// a place that is neither a resource, nor a function end, nor a thread
+    /// token.
     ///
     /// A run in which every thread reached `FunctionEnd` and handed every lock
     /// back is blocked too, and is a normal termination — which is why
-    /// [`StateGraph::blocked`] alone must not be reported as deadlocks.
+    /// [`StateGraph::blocked`] alone must not be reported as deadlocks. A
+    /// token on [`ControlSub::ThreadPlace`] is not that ending and is not a
+    /// stuck thread either.
     ///
     /// `net` is passed explicitly rather than read from [`StateGraph::net`]
     /// because that field is optional and a missing net cannot answer the

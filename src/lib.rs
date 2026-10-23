@@ -73,13 +73,13 @@ pub use cvn::{
 };
 pub use labeled::{LabeledBuilder, LabeledNet, Tag};
 pub use net::{
-    Arc, ArcDir, ControlSub, Incidence, IncidenceMatrix, Labeled, Marking, Net, NetBuilder, Place,
+    Arc, ArcDir, ControlSub, DataSub, Incidence, IncidenceMatrix, Labeled, Marking, Net, NetBuilder, Place,
     PlaceCapacity, PlaceClass, PlaceId, PlaceRole, State, Transition, TransitionId, TransitionRole,
     canonical,
 };
 pub use pt::{
     AliasId, AtomicOrdering, PlaceType, PtBuilder, PtNet, PtPlaceKind, PtTransitionKind,
-    TransitionType, UnsafeOp, marking,
+    ResourceKind, TransitionType, UnsafeOp, marking,
 };
 pub use timed::{
     CONTROL_TRANSITION_CORE, INF, TimeInterval, TimedBuilder, TimedExtra, TimedNet, TimedPlaceKind,

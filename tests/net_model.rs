@@ -388,9 +388,9 @@ fn place_roles_and_the_deadlock_definition_are_shared() {
 
 #[test]
 fn both_frontends_instantiate_one_place_classification() {
-    // The two differ in the resource payload and in nothing else: P/T keeps a
-    // resource's identity on the transition and its bound in a field, so its arm
-    // is empty, while the CVN's arm decides the capacity.
+    // The two differ in the resource payload and in nothing else: P/T carries a
+    // `ResourceKind` and keeps a particular lock's identity on the transition,
+    // while the CVN's arm decides the capacity.
     let pt_res: PlaceType = PlaceType::RESOURCE;
     let cvn_res: PlaceKind = PlaceClass::Resource(ResourceType::Mutex);
     assert!(pt_res.is_resource() && cvn_res.is_resource());

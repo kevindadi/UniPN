@@ -25,6 +25,6 @@ pub mod semantics;
 pub use builder::{PtBuilder, marking};
 pub use dot::DiagnosticReport;
 pub use kinds::{
-    AliasId, AtomicOrdering, PlaceType, PtNet, PtPlaceKind, PtTransitionKind, TransitionType,
-    UnsafeOp,
+    AliasId, AtomicOrdering, PlaceType, PtNet, PtPlaceKind, PtTransitionKind, ResourceKind,
+    TransitionType, UnsafeOp,
 };
