@@ -11,9 +11,20 @@
 //! implementation; all `PtPlaceKind` adds is reaching past its span and
 //! capacity fields to the class.
 
-use crate::net::{PlaceRole, TransitionRole};
+use crate::net::{Net, PlaceClass, PlaceId, PlaceRole, TransitionRole};
 
-use super::kinds::{PtPlaceKind, PtTransitionKind, TransitionType};
+use super::kinds::{PtPlaceKind, PtTransitionKind, ResourceKind, TransitionType};
+
+impl<TK, AK> Net<PtPlaceKind, TK, AK> {
+    /// The resource kind of `place`, or `None` when it is not a resource or
+    /// the id is unknown.
+    pub fn resource_kind(&self, place: PlaceId) -> Option<ResourceKind> {
+        match &self.place(place)?.kind.place_type {
+            PlaceClass::Resource(kind) => Some(*kind),
+            PlaceClass::Control(_) => None,
+        }
+    }
+}
 
 impl PlaceRole for PtPlaceKind {
     fn is_resource(&self) -> bool {

@@ -10,9 +10,10 @@
 //! Where they genuinely differ is the resource arm, and that is what `R` is for.
 //! The CVN's resource *type* decides the place's capacity ([`PlaceCapacity`] is
 //! implemented on `PlaceClass<ResourceType>`), because in ConcIR the resource
-//! identity already is the place identity. ConcBugDect's resource identity lives
-//! on the transition instead (`Lock(alias)`, `RwLockRead(alias)`) and its
-//! capacity is a separate field, so its resource arm carries nothing: `R = ()`.
+//! identity already is the place identity. ConcBugDect keeps the alias on the
+//! transition (`Lock(alias)`, `RwLockRead(alias)`) and the bound in
+//! [`PtPlaceKind::capacity`]; the P/T arm carries a [`ResourceKind`] so a lock,
+//! a condvar, an atomic and a channel are not the same place.
 //!
 //! This is deliberately a shared *enum*, unlike
 //! [`TransitionRole`](crate::net::TransitionRole), which is a set of predicates
@@ -63,11 +64,11 @@ pub enum ControlSub {
 /// A place is either a point in some thread's control flow or a shared
 /// resource — the dichotomy every analysis in the crate branches on.
 ///
-/// `R` is the frontend's resource payload: [`ResourceType`] for the CVN, `()`
-/// for P/T. Deriving `Ord` is conditional on `R`, so `PlaceClass<()>` is
-/// orderable whether or not the CVN's payload is.
+/// `R` is the frontend's resource payload: [`ResourceType`] for the CVN,
+/// [`ResourceKind`] for P/T. Deriving `Ord` is conditional on `R`.
 ///
 /// [`ResourceType`]: crate::cvn::ResourceType
+/// [`ResourceKind`]: crate::pt::ResourceKind
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum PlaceClass<R> {
     Control(ControlSub),
@@ -90,12 +91,6 @@ impl<R> PlaceClass<R> {
             Self::Control(_) => None,
         }
     }
-}
-
-impl PlaceClass<()> {
-    /// The payload-free resource place, spelled without the `Resource(())`
-    /// noise.
-    pub const RESOURCE: Self = Self::Resource(());
 }
 
 /// One definition for both frontends: a resource is the `Resource` arm, and the

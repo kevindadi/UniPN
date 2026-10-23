@@ -79,7 +79,7 @@ pub use net::{
 };
 pub use pt::{
     AliasId, AtomicOrdering, PlaceType, PtBuilder, PtNet, PtPlaceKind, PtTransitionKind,
-    TransitionType, UnsafeOp, marking,
+    ResourceKind, TransitionType, UnsafeOp, marking,
 };
 pub use timed::{
     CONTROL_TRANSITION_CORE, INF, TimeInterval, TimedBuilder, TimedExtra, TimedNet, TimedPlaceKind,

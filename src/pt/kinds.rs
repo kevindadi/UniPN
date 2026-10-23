@@ -9,15 +9,36 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::net::{ControlSub, Labeled, Net, PlaceClass};
 
-/// ConcBugDect's place classification: the shared [`PlaceClass`] with an empty
-/// resource arm.
+/// ConcBugDect's place classification: the shared [`PlaceClass`] with a
+/// [`ResourceKind`] payload.
 ///
-/// The arm carries nothing because P/T keeps a resource's *identity* on the
-/// transition that touches it (`TransitionType::Lock(alias)`) and its bound in
-/// [`PtPlaceKind::capacity`], where the CVN instead derives both from a
-/// `ResourceType`. The control arm is shared verbatim — the two frontends had
-/// converged on the same three roles, and now the type says so.
-pub type PlaceType = PlaceClass<()>;
+/// The alias of a particular lock still lives on the transition
+/// (`TransitionType::Lock(alias)`) and the bound still lives in
+/// [`PtPlaceKind::capacity`]. The kind says *which sort* of resource the place
+/// is, which the CVN instead derives from a `ResourceType`. The control arm is
+/// shared verbatim.
+pub type PlaceType = PlaceClass<ResourceKind>;
+
+/// Which sort of shared resource a P/T place is.
+///
+/// The pointer-analysis identity of one lock stays on the transition. This
+/// payload only separates kinds that must not be projected as the same port.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum ResourceKind {
+    Mutex,
+    RwLock,
+    Condvar,
+    Channel,
+    Atomic,
+    Thread,
+    Other,
+}
+
+impl PlaceClass<ResourceKind> {
+    /// A resource whose kind was not recorded. Legacy nets that only said
+    /// "resource" load as this.
+    pub const RESOURCE: Self = Self::Resource(ResourceKind::Other);
+}
 
 /// Atomic memory ordering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -105,15 +126,20 @@ impl PtPlaceKind {
         }
     }
 
-    /// A control-flow place. Shorter than spelling the class out, and it keeps
-    /// `PlaceClass::Resource(())` from appearing at call sites.
+    /// A control-flow place.
     pub fn control(sub: ControlSub) -> Self {
         Self::new(PlaceClass::Control(sub))
     }
 
-    /// A shared-resource place.
+    /// A shared resource of unknown kind. Prefer [`with_resource`] when the
+    /// kind is known.
     pub fn resource() -> Self {
         Self::new(PlaceType::RESOURCE)
+    }
+
+    /// A shared resource of a known kind.
+    pub fn with_resource(kind: ResourceKind) -> Self {
+        Self::new(PlaceClass::Resource(kind))
     }
 }
 
