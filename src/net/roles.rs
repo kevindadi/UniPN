@@ -25,8 +25,15 @@ pub trait PlaceRole {
     ///
     /// Only the annotated answer; [`Net::is_terminal`] additionally accepts a
     /// place no arc can move a token out of, which covers the exits a lowering
-    /// left unlabelled.
+    /// left unlabelled. A thread-token place is not an end: only
+    /// `FunctionEnd` answers `true`.
     fn is_terminal(&self) -> bool;
+
+    /// The token a spawn hands its parent. Default `false` so a frontend that
+    /// has no such place is unchanged.
+    fn is_thread_place(&self) -> bool {
+        false
+    }
 }
 
 /// A transition kind that classifies the concurrency operation it stands for.
@@ -112,18 +119,29 @@ impl<PK: PlaceRole, TK, AK> Net<PK, TK, AK> {
             .is_some_and(|p| p.kind.is_terminal() || self.is_sink(place))
     }
 
+    /// Whether `place` is the token a spawn hands its parent.
+    pub fn is_thread_place(&self, place: PlaceId) -> bool {
+        self.place(place)
+            .is_some_and(|p| p.kind.is_thread_place())
+    }
+
     /// The places whose tokens say a thread is stuck: control-flow places that
-    /// are not a thread terminal.
+    /// are not a function end and not a thread token.
     ///
     /// A resource token is not evidence of anything — an unlocked mutex sits on
-    /// its own resource place — and a token on a thread end is a thread that
-    /// finished.
+    /// its own resource place — and a token on a function end is a thread that
+    /// finished. A token on a thread place is the parent waiting to join, not
+    /// a thread that is stuck, even when a `Join` consumes it.
     pub fn blocked_places(&self, marking: &Marking) -> Vec<PlaceId> {
         marking
             .iter_nonzero()
             .map(|(place, _)| place)
-            .filter(|&place| !self.is_resource(place) && !self.is_terminal(place))
+            .filter(|&place| self.blocks_a_thread(place))
             .collect()
+    }
+
+    fn blocks_a_thread(&self, place: PlaceId) -> bool {
+        !self.is_resource(place) && !self.is_thread_place(place) && !self.is_terminal(place)
     }
 
     /// Whether a marking that has nothing left to fire is a genuine deadlock.
@@ -134,7 +152,7 @@ impl<PK: PlaceRole, TK, AK> Net<PK, TK, AK> {
     pub fn is_deadlock(&self, marking: &Marking) -> bool {
         marking
             .iter_nonzero()
-            .any(|(place, _)| !self.is_resource(place) && !self.is_terminal(place))
+            .any(|(place, _)| self.blocks_a_thread(place))
     }
 }
 

@@ -37,8 +37,10 @@ use crate::net::PlaceRole;
 ///
 /// There is no `ThreadEnd`. In ConcIR a thread **is** a function — `spawn`,
 /// `scope`, and `async_call` all target an ordinary function, and the same
-/// function can be both called and spawned — so being a thread's terminal is a
-/// property of the call site, which a place kind cannot express.
+/// function can be both called and spawned — so the place where that thread
+/// finishes is still [`FunctionEnd`](ControlSub::FunctionEnd).
+/// [`ThreadPlace`](ControlSub::ThreadPlace) is the token the parent holds
+/// until it joins, not that ending.
 ///
 /// There is no `WaitPoint` or `CallWait`. Both named the *operation* a token was
 /// waiting on, and both frontends already keep that on the transition; the
@@ -57,8 +59,13 @@ pub enum ControlSub {
     BasicBlock,
     FunctionStart,
     /// Where a function's control comes to rest, and so also where a spawned
-    /// function's thread ends.
+    /// function's thread ends. A token here is a finished thread.
     FunctionEnd,
+    /// The token a `spawn` gives its parent and a `join` consumes.
+    ///
+    /// A token here is neither a finished thread nor a stuck one. It is not a
+    /// [`FunctionEnd`](ControlSub::FunctionEnd).
+    ThreadPlace,
 }
 
 /// A place is either a point in some thread's control flow or a shared
@@ -101,6 +108,12 @@ impl<R> PlaceRole for PlaceClass<R> {
     }
 
     fn is_terminal(&self) -> bool {
+        // Only a function end. `ThreadPlace` is a join token, and a data place
+        // is not a thread at all.
         matches!(self, Self::Control(ControlSub::FunctionEnd))
+    }
+
+    fn is_thread_place(&self) -> bool {
+        matches!(self, Self::Control(ControlSub::ThreadPlace))
     }
 }

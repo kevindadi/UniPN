@@ -18,6 +18,7 @@ pub fn to_dot(net: &CvnNet) -> String {
             PlaceKind::Resource(ResourceType::Condvar) => "cv",
             PlaceKind::Control(ControlSub::FunctionEnd) => "end",
             PlaceKind::Control(ControlSub::FunctionStart) => "start",
+            PlaceKind::Control(ControlSub::ThreadPlace) => "thread",
             PlaceKind::Control(ControlSub::BasicBlock) => "",
         };
         out.push_str(&format!(

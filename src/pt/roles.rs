@@ -34,6 +34,10 @@ impl PlaceRole for PtPlaceKind {
     fn is_terminal(&self) -> bool {
         self.place_type.is_terminal()
     }
+
+    fn is_thread_place(&self) -> bool {
+        self.place_type.is_thread_place()
+    }
 }
 
 impl TransitionRole for PtTransitionKind {
